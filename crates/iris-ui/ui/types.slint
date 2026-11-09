@@ -880,6 +880,54 @@ export struct ChartCardData {
     data: ChartData,
 }
 
+// An item of a whiteboard as the canvas draws it, in board units (one pixel at 100 %).
+// Arrows and pen strokes come with the box around their line and the line in it.
+export struct BoardItemData {
+    id: int,
+    /// 0 a shape, 1 a sticky note, 2 a text, 3 a frame, 4 an arrow, 5 a pen stroke.
+    kind: int,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    /// A shape's outline or a line, in the item's box; empty: the box itself.
+    path: string,
+    /// An arrow's heads, filled, in the same box.
+    heads: string,
+    radius: float,
+    /// Colours by their place in `Board.palette`: −1 none, −2 the `…-custom` one.
+    fill: int,
+    fill-custom: color,
+    opacity: float,
+    stroke: int,
+    stroke-custom: color,
+    stroke-width: float,
+    text: string,
+    text-colour: int,
+    text-custom: color,
+    font: int,
+    font-size: float,
+    bold: bool,
+    italic: bool,
+    /// 0 left, 1 centre, 2 right.
+    align: int,
+    /// Where an arrow's words go (board units).
+    label-x: float,
+    label-y: float,
+    /// Its words are being typed: the field over it shows them.
+    editing: bool,
+}
+
+// A handle on the whiteboard, in board units. 0 resizes; 2 a point an arrow can tie
+// to; 3 an arrow's tied end, 4 a free one; 5 a corner to move; 6 the middle of a piece
+// (drag to bend); 7 the point an end is about to tie to; 10–13 the "+" beside a side
+// (top, right, bottom, left) that starts an arrow.
+export struct BoardHandleData {
+    x: float,
+    y: float,
+    kind: int,
+}
+
 // A note found by Quick open or search.
 export struct NoteFoundData {
     key: string,

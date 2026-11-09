@@ -27,7 +27,7 @@
 - <img src="docs/assets/icons/calendar.svg" width="16" alt=""> **Calendar** — month, week, day, 3 days and agenda; CalDAV both ways; invitations from mail.
 - <img src="docs/assets/icons/check-circle.svg" width="16" alt=""> **Tasks** — typed in one line (`tomorrow 9am Call Marie #Work !!`), planned into your free time.
 - <img src="docs/assets/icons/target.svg" width="16" alt=""> **Goals and habits** — the pace a goal needs, habits ticked day by day with their streaks.
-- <img src="docs/assets/icons/file-text.svg" width="16" alt=""> **Notes** — Markdown files written as they look, with LaTeX, flashcards and spreadsheets.
+- <img src="docs/assets/icons/file-text.svg" width="16" alt=""> **Notes** — Markdown files written as they look, with LaTeX, flashcards, spreadsheets and whiteboards.
 - <img src="docs/assets/icons/refresh.svg" width="16" alt=""> **Sync between your devices** — over your Wi-Fi, paired with a QR code, no account and no cloud.
 - <img src="docs/assets/icons/smartphone.svg" width="16" alt=""> **Any width** — the same Iris on a wide screen, a narrow window, a foldable or a phone.
 - <img src="docs/assets/icons/zap.svg" width="16" alt=""> **Instant** — opening, archiving and searching never wait, even with hundreds of thousands of messages.
@@ -244,6 +244,26 @@ them; an Obsidian vault opens as it is.
   A workbook's charts share one canvas: drag the background to move around, `Ctrl` and
   the wheel (or −, +) to zoom, **Fit** to frame them all, and drag a chart's card to
   arrange it. The settings column folds away with the button at its top.
+- **Whiteboards** (`.board`, the board button beside *New spreadsheet*): a board without
+  edges that grows with what is on it, zoomed from 1 % to 800 %. The tools on its left
+  draw **sticky notes**, **shapes** (square, rounded, ellipse, diamond, triangle,
+  parallelogram, hexagon, star), **texts**, **frames** (moving one moves what it
+  holds), **arrows** and **pen** strokes; drag to give a size, click for the usual one.
+  - **Arrows** tie to a shape's side or anywhere on its outline and follow it; `Ctrl`
+    while dropping an end leaves it free. Straight, at right angles (corners square or
+    round) or curved: drag a corner to move it, a piece's middle to bend it (a new
+    point), double-click a point to take it away. Each end has its head (none, arrow,
+    dot, diamond).
+  - A chosen shape shows a **+** on each side: drag it to draw an arrow from there, or
+    click it for a copy beyond that side, already linked — the next step of a diagram.
+  - The **toolbar** over what is chosen sets its fill (nine soft colours, nine strong,
+    any `#rrggbb`, an opacity), its border and its width, the font (sans, display,
+    serif, mono, handwriting), size, bold, italic, the text's colour and alignment.
+  - Double-click an item, or press `Enter`, to type in it; double-click the empty board
+    for a text. Sticky notes and texts grow with their words.
+  - Drag the empty board to choose what a box covers (`Shift` adds), the wheel or the
+    hand tool (`H`, the middle button) to move around, `Ctrl` and the wheel to zoom;
+    the minimap and the zoom at the bottom right.
 - **Flashcards** (`Question :: Answer`), revised with spaced repetition.
 - **Tabs**, each back where you left it, a note **beside** another (`Ctrl`+`\`),
   reading mode (`Ctrl`+`R`), focus mode (`F11`), version history.
@@ -275,7 +295,8 @@ An assistant that speaks MCP (Claude Desktop, Claude Code and others) can work i
 for you: search the mail with every filter, read conversations, mark, file, snooze and
 send; see the calendar by day or week, create, move and delete events with their notes,
 meeting links and subtasks; manage tasks, habits and goals; browse note spaces, read and
-write notes in Iris's full syntax, and fill spreadsheets and charts.
+write notes in Iris's full syntax, fill spreadsheets and charts, and read and draw on
+whiteboards (shapes, sticky notes and the arrows between them).
 
 1. *Settings › System › **Let an AI assistant use Iris***.
 2. **Copy setup**, and paste it into the assistant's MCP settings
@@ -334,6 +355,9 @@ over a choice made before it arrived.
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | Notes: new / open / search |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | Notes: new tab / close / next tab |
 | `Ctrl`+`←` / `Ctrl`+`→` | Notes: the line's start / end |
+| `V` `H` `N` `S` `T` `A` `P` `F` | Whiteboard: choose, move the view, sticky note, shape, text, arrow, pen, frame (`R` a square, `O` an ellipse) |
+| `Ctrl`+`D` / `Ctrl`+`]` / `Ctrl`+`[` / `Ctrl`+`L` | Whiteboard: duplicate / to the front / to the back / lock |
+| `Ctrl`+`0` / `Ctrl`+`+` / `Ctrl`+`-` / `Shift`+`1` | Whiteboard: 100 % / zoom in / out / everything |
 | `?` | Every key |
 
 ## Current limits
@@ -351,7 +375,8 @@ over a choice made before it arrived.
 - Notes: input methods (Chinese, Japanese, Korean) do not type yet; spreadsheets have no
   merged cells or conditional formats; a chart reads one table of one sheet, shows at
   most 12 shares or 10 steps per column (the rest as "Other"), and is not exported to
-  Excel.
+  Excel. Whiteboards hold no pictures yet, have no dashed lines, cannot be shown in a
+  note and are not zoomed with two fingers on a phone; copy and paste stay within Iris.
 - Office hours are set in UTC. Filer reads an attachment's name only once the message's
   body has been fetched. Iris has no plugins since 7.0.
 - The command line only starts, checks (`iris doctor`), registers Iris

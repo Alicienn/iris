@@ -8,13 +8,15 @@
 //! shows what changed here within a couple of seconds.
 
 use super::{time, Ctx};
+use iris_board::geom::{Pt, Rect};
+use iris_board::{Board, Colour, End, Item, Kind as BoardKind, Shape as BoardShape, SIDES};
 use iris_mcp::{Args, Tool, ToolError, ToolResult};
 use iris_notes::{block, links, meta};
 use iris_sheets::chart::{self, Chart, Kind, Series};
 use iris_sheets::{Addr, Locale, Range, Sheet, Workbook};
 use iris_vault::{EntryKind, RecycleBin, Space, Vault, WriteOutcome};
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// The most entries `notes_tree` gives back.
@@ -339,6 +341,62 @@ pub(super) fn tools() -> Vec<Tool> {
                 "required": ["path", "name"]
             }),
         ),
+        Tool::read(
+            "boards_read",
+            "Read a whiteboard",
+            "A .board file (a whiteboard): every item in drawing order (the last on top) with \
+             its id, kind (shape, sticky, text, frame, connector, ink), box (x, y, w, h in \
+             pixels at 100 %), text and style; a connector's from/to are {item, x, y} (x, y \
+             fractions of that item's box) or a free {x, y}.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "space": space_arg(),
+                    "path": path_arg("The whiteboard, e.g. \"Work/Plan.board\" (or its name).")
+                },
+                "required": ["path"]
+            }),
+        ),
+        Tool::write(
+            "boards_add",
+            "Add to a whiteboard",
+            "Adds items to a whiteboard, made when missing (.board added to the path). Each item: \
+             kind (shape, sticky, text, frame, arrow, pen); x, y (top left) and optionally w, h; \
+             text; shape (rect, rounded, ellipse, diamond, triangle, parallelogram, hexagon, \
+             star); fill, stroke, color (yellow, orange, red, pink, purple, blue, teal, green, \
+             grey, each also -soft; paper, ink, ink-soft, line, none, or #rrggbb); font (sans, \
+             display, serif, mono, hand), size, bold, italic, align (left, center, right); an \
+             optional ref naming it in this call. An arrow: from and to, each an item's id, a \
+             ref, or {x, y}; it ties to the sides facing each other; way (straight, elbow, \
+             curved), start and end heads (none, arrow, dot, diamond). A pen stroke: points \
+             [[x, y], ...]. Gives back the new ids by ref.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "space": space_arg(),
+                    "path": path_arg("The whiteboard, e.g. \"Work/Plan\"."),
+                    "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+                },
+                "required": ["path", "items"]
+            }),
+        ),
+        Tool::destructive(
+            "boards_update",
+            "Change a whiteboard's items",
+            "Changes items of a whiteboard by id (any field boards_add takes, x and y moving \
+             it; an arrow's from/to tie it again) and deletes others (delete: [ids]; an \
+             item's arrows go with it).",
+            json!({
+                "type": "object",
+                "properties": {
+                    "space": space_arg(),
+                    "path": path_arg("The whiteboard."),
+                    "update": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+                    "delete": { "type": "array", "items": { "type": "integer" } }
+                },
+                "required": ["path"]
+            }),
+        ),
     ]
 }
 
@@ -372,6 +430,9 @@ fn run(ctx: &Ctx, n: &Notes, name: &str, a: &Args) -> ToolResult {
         "sheets_read" => sheets_read(n, a),
         "sheets_write" => sheets_write(n, a),
         "sheets_add_chart" => add_chart(n, a),
+        "boards_read" => boards_read(n, a),
+        "boards_add" => boards_add(n, a),
+        "boards_update" => boards_update(n, a),
         autre => return Err(ToolError::new(format!("unknown tool: {autre}"))),
     };
     let ecrit = matches!(
@@ -385,6 +446,8 @@ fn run(ctx: &Ctx, n: &Notes, name: &str, a: &Args) -> ToolResult {
             | "notes_create_from_template"
             | "sheets_write"
             | "sheets_add_chart"
+            | "boards_add"
+            | "boards_update"
     );
     if ecrit && r.is_ok() {
         ctx.refresh();
@@ -469,6 +532,9 @@ fn note_path(raw: &str) -> Result<String, ToolError> {
         EntryKind::Sheet => Err(ToolError::new(
             "this is a spreadsheet: write it with sheets_write",
         )),
+        EntryKind::Board => Err(ToolError::new(
+            "this is a whiteboard: change it with boards_add and boards_update",
+        )),
         _ => Ok(format!("{r}.md")),
     }
 }
@@ -502,6 +568,9 @@ fn existing_note(s: &Space, raw: &str) -> Result<String, ToolError> {
         EntryKind::Sheet => Err(ToolError::new(format!(
             "\"{rel}\" is a spreadsheet: read it with sheets_read"
         ))),
+        EntryKind::Board => Err(ToolError::new(format!(
+            "\"{rel}\" is a whiteboard: read it with boards_read"
+        ))),
         _ => Err(ToolError::new(format!("\"{rel}\" is not a note"))),
     }
 }
@@ -511,6 +580,7 @@ fn kind_name(k: EntryKind) -> &'static str {
         EntryKind::Folder => "folder",
         EntryKind::Note => "note",
         EntryKind::Sheet => "sheet",
+        EntryKind::Board => "board",
         EntryKind::Image => "image",
         EntryKind::Other => "other",
     }
@@ -1427,6 +1497,428 @@ fn add_chart(n: &Notes, a: &Args) -> ToolResult {
     Ok(v)
 }
 
+// --- Whiteboards ----------------------------------------------------------------------
+
+/// The most items `boards_add` takes in one call.
+const MAX_ITEMS: usize = 2000;
+
+/// A whiteboard's path: `.board` added when missing.
+fn board_path(raw: &str) -> Result<String, ToolError> {
+    let r = clean_file(raw)?;
+    Ok(if EntryKind::of(&r) == EntryKind::Board {
+        r
+    } else {
+        format!("{r}.board")
+    })
+}
+
+/// A whiteboard of the space: by its path, else by its name wherever it is.
+fn find_board(s: &Space, raw: &str) -> Result<String, ToolError> {
+    let rel = board_path(raw)?;
+    if s.path(&rel)?.is_file() {
+        return Ok(rel);
+    }
+    let nom = rel.rsplit('/').next().unwrap_or(&rel).to_lowercase();
+    let ouverts: HashSet<String> = s.folders().into_iter().collect();
+    let trouves: Vec<String> = s
+        .tree(&ouverts)?
+        .into_iter()
+        .filter(|e| e.kind == EntryKind::Board)
+        .map(|e| e.rel)
+        .filter(|r| r.rsplit('/').next().unwrap_or(r).to_lowercase() == nom)
+        .collect();
+    match trouves.as_slice() {
+        [un] => Ok(un.clone()),
+        [] => Err(ToolError::new(format!(
+            "no whiteboard \"{rel}\" in the space \"{}\"",
+            s.config.name
+        ))),
+        plusieurs => Err(ToolError::new(format!(
+            "several whiteboards are named so: {}",
+            plusieurs.join(", ")
+        ))),
+    }
+}
+
+fn load_board(s: &Space, rel: &str) -> Result<(Board, i64), ToolError> {
+    let (texte, modifie) = s.read(rel)?;
+    let b = if texte.trim().is_empty() {
+        Board::default()
+    } else {
+        Board::from_json(&texte)
+            .map_err(|e| ToolError::new(format!("\"{rel}\" cannot be read as a whiteboard: {e}")))?
+    };
+    Ok((b, modifie))
+}
+
+fn boards_read(n: &Notes, a: &Args) -> ToolResult {
+    let s = pick(n, a)?;
+    let rel = find_board(&s, &a.str("path")?)?;
+    let (b, modifie) = load_board(&s, &rel)?;
+    let bornes = b
+        .bounds()
+        .map(|r| json!({ "x": r.x, "y": r.y, "w": r.w, "h": r.h }));
+    Ok(json!({
+        "space": s.config.name,
+        "path": rel,
+        "modified": time::format_ms(modifie),
+        "items": serde_json::to_value(&b.items)?,
+        "bounds": bornes,
+    }))
+}
+
+/// An item's kind as the tools name it.
+fn board_kind(k: &str) -> Result<BoardKind, ToolError> {
+    Ok(match k.trim().to_ascii_lowercase().as_str() {
+        "shape" => BoardKind::Shape,
+        "sticky" | "note" | "sticky_note" => BoardKind::Sticky,
+        "text" => BoardKind::Text,
+        "frame" => BoardKind::Frame,
+        "arrow" | "connector" | "line" => BoardKind::Connector,
+        "pen" | "ink" | "stroke" => BoardKind::Ink,
+        autre => {
+            return Err(ToolError::new(format!(
+                "\"{autre}\" is not a kind of item (shape, sticky, text, frame, arrow, pen)"
+            )))
+        }
+    })
+}
+
+/// The fields given to an item laid over it: everything `boards_add` takes but its
+/// kind, its ref, its id and an arrow's ends.
+fn board_fields(it: &mut Item, o: &Map<String, Value>) -> Result<(), ToolError> {
+    let mut v = serde_json::to_value(&*it)?;
+    let Some(champs) = v.as_object_mut() else {
+        return Err(ToolError::new("this item cannot be changed"));
+    };
+    for (k, val) in o {
+        match k.as_str() {
+            "ref" | "kind" | "id" | "from" | "to" => {}
+            "x" | "y" | "w" | "h" | "size" | "width" | "opacity" => {
+                if !val.is_number() {
+                    return Err(ToolError::new(format!("\"{k}\" must be a number")));
+                }
+                champs.insert(k.clone(), val.clone());
+            }
+            "text" | "bold" | "italic" | "rounded" | "locked" => {
+                champs.insert(k.clone(), val.clone());
+            }
+            "fill" | "stroke" | "color" => {
+                let c = val
+                    .as_str()
+                    .ok_or_else(|| ToolError::new(format!("\"{k}\" must be a colour's name")))?
+                    .trim()
+                    .to_ascii_lowercase();
+                if c != "none" && Colour::parse(&c) == Colour::None {
+                    return Err(ToolError::new(format!(
+                        "\"{c}\" is not a colour (yellow, blue-soft, ink, none, #3a7bd5…)"
+                    )));
+                }
+                champs.insert(k.clone(), json!(c));
+            }
+            "shape" | "font" | "way" | "start" | "end" | "align" => {
+                let s = val
+                    .as_str()
+                    .ok_or_else(|| ToolError::new(format!("\"{k}\" must be a word")))?
+                    .trim()
+                    .to_ascii_lowercase();
+                let s = match s.as_str() {
+                    "handwriting" => "hand".to_string(),
+                    "centre" | "middle" => "center".to_string(),
+                    "square" => "rect".to_string(),
+                    "circle" | "oval" => "ellipse".to_string(),
+                    _ => s,
+                };
+                champs.insert(k.clone(), json!(s));
+            }
+            "points" => {
+                let liste = val
+                    .as_array()
+                    .ok_or_else(|| ToolError::new("\"points\" must be a list of [x, y]"))?;
+                let mut pts = Vec::new();
+                for p in liste {
+                    let (x, y) = match p {
+                        Value::Array(xy) if xy.len() == 2 => (xy[0].as_f64(), xy[1].as_f64()),
+                        Value::Object(m) => (
+                            m.get("x").and_then(Value::as_f64),
+                            m.get("y").and_then(Value::as_f64),
+                        ),
+                        _ => (None, None),
+                    };
+                    match (x, y) {
+                        (Some(x), Some(y)) => pts.push(json!({ "x": x, "y": y })),
+                        _ => return Err(ToolError::new("\"points\" must be a list of [x, y]")),
+                    }
+                }
+                champs.insert(k.clone(), Value::Array(pts));
+            }
+            autre => {
+                return Err(ToolError::new(format!(
+                    "\"{autre}\" is not a field of a whiteboard's item"
+                )))
+            }
+        }
+    }
+    let id = it.id;
+    let kind = it.kind;
+    *it = serde_json::from_value(v).map_err(|e| ToolError::new(format!("item {id}: {e}")))?;
+    it.id = id;
+    it.kind = kind;
+    Ok(())
+}
+
+/// An arrow's end as given: an item (by id or ref) or a point.
+enum BoardEnd {
+    Item(u64),
+    Point(Pt),
+}
+
+fn board_end(v: &Value, refs: &HashMap<String, u64>) -> Result<BoardEnd, ToolError> {
+    match v {
+        Value::Number(n) => n
+            .as_u64()
+            .map(BoardEnd::Item)
+            .ok_or_else(|| ToolError::new("an item's id is a whole number")),
+        Value::String(s) => refs
+            .get(s)
+            .copied()
+            .or_else(|| s.trim().parse::<u64>().ok())
+            .map(BoardEnd::Item)
+            .ok_or_else(|| ToolError::new(format!("no item named \"{s}\" in this call"))),
+        Value::Array(xy) if xy.len() == 2 => match (xy[0].as_f64(), xy[1].as_f64()) {
+            (Some(x), Some(y)) => Ok(BoardEnd::Point(Pt::new(x as f32, y as f32))),
+            _ => Err(ToolError::new("a point is [x, y]")),
+        },
+        Value::Object(m) => match (
+            m.get("x").and_then(Value::as_f64),
+            m.get("y").and_then(Value::as_f64),
+        ) {
+            (Some(x), Some(y)) => Ok(BoardEnd::Point(Pt::new(x as f32, y as f32))),
+            _ => Err(ToolError::new("a point is {\"x\": …, \"y\": …}")),
+        },
+        _ => Err(ToolError::new(
+            "an arrow's end is an item's id, a ref, or a point",
+        )),
+    }
+}
+
+/// An arrow's ends tied to the middles of the sides its items turn to each other.
+fn tie(b: &Board, from: &BoardEnd, to: &BoardEnd) -> Result<(End, End), ToolError> {
+    let boite = |e: &BoardEnd| -> Result<Option<Item>, ToolError> {
+        match e {
+            BoardEnd::Item(id) => match b.get(*id) {
+                Some(it) if it.kind.boxed() => Ok(Some(it.clone())),
+                Some(_) => Err(ToolError::new(format!(
+                    "item {id} is an arrow or a stroke: an arrow ties to a shape, a sticky note, a text or a frame"
+                ))),
+                None => Err(ToolError::new(format!("no item {id} on this whiteboard"))),
+            },
+            BoardEnd::Point(_) => Ok(None),
+        }
+    };
+    let centre = |e: &BoardEnd, it: &Option<Item>| match (e, it) {
+        (_, Some(it)) => it.rect().center(),
+        (BoardEnd::Point(p), None) => *p,
+        (BoardEnd::Item(_), None) => Pt::default(),
+    };
+    let (ia, ib) = (boite(from)?, boite(to)?);
+    let (ca, cb) = (centre(from, &ia), centre(to, &ib));
+    let bout = |e: &BoardEnd, it: &Option<Item>, vers: Pt| match (e, it) {
+        (_, Some(it)) => {
+            let (u, v) = SIDES
+                .iter()
+                .copied()
+                .min_by(|x, y| {
+                    it.at(x.0, x.1)
+                        .distance(vers)
+                        .total_cmp(&it.at(y.0, y.1).distance(vers))
+                })
+                .unwrap_or((0.5, 0.5));
+            End::on(it.id, u, v)
+        }
+        (BoardEnd::Point(p), None) => End::free(*p),
+        (BoardEnd::Item(_), None) => End::default(),
+    };
+    Ok((bout(from, &ia, cb), bout(to, &ib, ca)))
+}
+
+/// The size a box takes when none is given.
+fn board_size(k: BoardKind) -> (f32, f32) {
+    match k {
+        BoardKind::Sticky => (160.0, 160.0),
+        BoardKind::Text => (200.0, 30.0),
+        BoardKind::Frame => (480.0, 320.0),
+        _ => (150.0, 72.0),
+    }
+}
+
+fn boards_add(n: &Notes, a: &Args) -> ToolResult {
+    let s = pick(n, a)?;
+    let rel = board_path(&a.str("path")?)?;
+    let p = s.path(&rel)?;
+    if p.is_dir() {
+        return Err(ToolError::new(format!("\"{rel}\" is a folder")));
+    }
+    let existait = p.is_file();
+    let (mut b, modifie) = if existait {
+        let (b, m) = load_board(&s, &rel)?;
+        (b, Some(m))
+    } else {
+        (Board::default(), None)
+    };
+    let Some(Value::Array(liste)) = a.get("items") else {
+        return Err(ToolError::new("give items: a list of objects"));
+    };
+    if liste.is_empty() {
+        return Err(ToolError::new("give at least one item"));
+    }
+    if liste.len() > MAX_ITEMS {
+        return Err(ToolError::new(format!(
+            "at most {MAX_ITEMS} items in one call"
+        )));
+    }
+    let mut refs: HashMap<String, u64> = HashMap::new();
+    let mut nouveaux = Vec::new();
+    let mut fleches = Vec::new();
+    for (i, v) in liste.iter().enumerate() {
+        let Value::Object(o) = v else {
+            return Err(ToolError::new(format!("item {i} is not an object")));
+        };
+        let kind = board_kind(o.get("kind").and_then(Value::as_str).unwrap_or("shape"))?;
+        let id = b.take_id();
+        if let Some(r) = o.get("ref").and_then(Value::as_str) {
+            refs.insert(r.to_string(), id);
+        }
+        let (w, h) = board_size(kind);
+        let r = Rect::new(0.0, 0.0, w, h);
+        let mut it = match kind {
+            BoardKind::Shape => Item::shape(id, BoardShape::Rounded, r),
+            BoardKind::Sticky => Item::sticky(id, r),
+            BoardKind::Text => Item::text(id, r),
+            BoardKind::Frame => Item::frame(id, r),
+            BoardKind::Connector => Item::connector(id, End::default(), End::default()),
+            BoardKind::Ink => Item::ink(id, Vec::new()),
+        };
+        board_fields(&mut it, o)?;
+        if kind == BoardKind::Ink && it.points.is_empty() {
+            return Err(ToolError::new(format!(
+                "item {i}: a pen stroke needs points"
+            )));
+        }
+        if kind == BoardKind::Connector {
+            let (Some(de), Some(vers)) = (o.get("from"), o.get("to")) else {
+                return Err(ToolError::new(format!(
+                    "item {i}: an arrow needs from and to"
+                )));
+            };
+            fleches.push((id, de.clone(), vers.clone()));
+        }
+        nouveaux.push(it);
+    }
+    let ids: Vec<u64> = nouveaux.iter().map(|i| i.id).collect();
+    // Frames under everything, the rest on top in the order given.
+    for it in nouveaux {
+        if it.kind == BoardKind::Frame {
+            b.items.insert(0, it);
+        } else {
+            b.items.push(it);
+        }
+    }
+    for (id, de, vers) in fleches {
+        let (fa, fb) = tie(&b, &board_end(&de, &refs)?, &board_end(&vers, &refs)?)?;
+        if let Some(it) = b.get_mut(id) {
+            it.from = Some(fa);
+            it.to = Some(fb);
+        }
+    }
+    let resultat = s.write(&rel, &b.to_json(), modifie)?;
+    let mut v = json!({
+        "space": s.config.name,
+        "path": rel,
+        "created": !existait,
+        "ids": ids,
+        "refs": refs,
+    });
+    if let WriteOutcome::Conflict { saved_as, .. } = resultat {
+        v["conflict_copy"] = json!(saved_as);
+    }
+    Ok(v)
+}
+
+fn boards_update(n: &Notes, a: &Args) -> ToolResult {
+    let s = pick(n, a)?;
+    let rel = find_board(&s, &a.str("path")?)?;
+    let (mut b, modifie) = load_board(&s, &rel)?;
+    let mut changes = 0;
+    if let Some(Value::Array(liste)) = a.get("update") {
+        for (i, v) in liste.iter().enumerate() {
+            let Value::Object(o) = v else {
+                return Err(ToolError::new(format!("update {i} is not an object")));
+            };
+            let id = o
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::new(format!("update {i} needs the item's id")))?;
+            let Some(mut it) = b.get(id).cloned() else {
+                return Err(ToolError::new(format!("no item {id} on this whiteboard")));
+            };
+            board_fields(&mut it, o)?;
+            if it.kind == BoardKind::Connector && (o.contains_key("from") || o.contains_key("to")) {
+                let actuel = |e: Option<End>| match e {
+                    Some(End { item: Some(i), .. }) => BoardEnd::Item(i),
+                    Some(e) => BoardEnd::Point(Pt::new(e.x, e.y)),
+                    None => BoardEnd::Point(Pt::default()),
+                };
+                let refs = HashMap::new();
+                let de = match o.get("from") {
+                    Some(v) => board_end(v, &refs)?,
+                    None => actuel(it.from),
+                };
+                let vers = match o.get("to") {
+                    Some(v) => board_end(v, &refs)?,
+                    None => actuel(it.to),
+                };
+                let (fa, fb) = tie(&b, &de, &vers)?;
+                it.from = Some(fa);
+                it.to = Some(fb);
+                it.points.clear();
+            }
+            if let Some(place) = b.get_mut(id) {
+                *place = it;
+            }
+            changes += 1;
+        }
+    }
+    let mut supprimes = Vec::new();
+    if let Some(Value::Array(liste)) = a.get("delete") {
+        for v in liste {
+            let id = v
+                .as_u64()
+                .ok_or_else(|| ToolError::new("delete takes items' ids"))?;
+            if b.get(id).is_none() {
+                return Err(ToolError::new(format!("no item {id} on this whiteboard")));
+            }
+            supprimes.push(id);
+        }
+    }
+    if changes == 0 && supprimes.is_empty() {
+        return Err(ToolError::new("give update or delete"));
+    }
+    let avant = b.items.len();
+    b.remove(&supprimes);
+    let resultat = s.write(&rel, &b.to_json(), Some(modifie))?;
+    let mut v = json!({
+        "space": s.config.name,
+        "path": rel,
+        "updated": changes,
+        "deleted": avant - b.items.len(),
+    });
+    if let WriteOutcome::Conflict { saved_as, .. } = resultat {
+        v["conflict_copy"] = json!(saved_as);
+    }
+    Ok(v)
+}
+
 // --- The syntax -----------------------------------------------------------------------
 
 fn syntax() -> String {
@@ -1816,6 +2308,71 @@ mod tests {
     }
 
     #[test]
+    fn a_whiteboard_is_drawn_tied_changed_and_cleared() {
+        let (ctx, dir, _rt) = super::super::test_ctx();
+        let n = notes_in(dir.path());
+        ask(&ctx, &n, "notes_create_space", json!({"name": "Travail"})).unwrap();
+
+        let w = ask(
+            &ctx,
+            &n,
+            "boards_add",
+            json!({"path": "Plan", "items": [
+                {"ref": "idea", "kind": "shape", "x": 0, "y": 0, "text": "Idea"},
+                {"ref": "go", "kind": "shape", "shape": "diamond", "x": 300, "y": 0, "fill": "yellow-soft"},
+                {"kind": "arrow", "from": "idea", "to": "go", "way": "elbow"},
+                {"kind": "sticky", "x": 0, "y": 200, "text": "Ask sales"},
+                {"kind": "frame", "x": -40, "y": -40, "w": 600, "h": 400, "text": "Launch"}
+            ]}),
+        )
+        .unwrap();
+        assert_eq!(w["path"], "Plan.board");
+        assert_eq!(w["created"], true);
+        let idea = w["refs"]["idea"].as_u64().unwrap();
+        let go = w["refs"]["go"].as_u64().unwrap();
+
+        let r = ask(&ctx, &n, "boards_read", json!({"path": "Plan"})).unwrap();
+        let items = r["items"].as_array().unwrap();
+        assert_eq!(items.len(), 5);
+        // The frame lies under everything.
+        assert_eq!(items[0]["kind"], "frame");
+        let arrow = items.iter().find(|i| i["kind"] == "connector").unwrap();
+        assert_eq!(arrow["from"]["item"].as_u64(), Some(idea));
+        assert_eq!(arrow["from"]["x"].as_f64(), Some(1.0));
+        assert_eq!(arrow["to"]["item"].as_u64(), Some(go));
+        assert_eq!(arrow["to"]["x"].as_f64(), Some(0.0));
+
+        assert!(ask(
+            &ctx,
+            &n,
+            "boards_add",
+            json!({"path": "Plan", "items": [{"kind": "shape", "fill": "glitter"}]})
+        )
+        .is_err());
+        assert!(ask(&ctx, &n, "notes_read", json!({"path": "Plan.board"})).is_err());
+
+        let u = ask(
+            &ctx,
+            &n,
+            "boards_update",
+            json!({"path": "Plan", "update": [{"id": idea, "fill": "#3A7BD5", "x": 20}], "delete": [go]}),
+        )
+        .unwrap();
+        assert_eq!(u["updated"], 1);
+        // The diamond, and the arrow tied to it.
+        assert_eq!(u["deleted"], 2);
+        let r = ask(&ctx, &n, "boards_read", json!({"path": "Plan.board"})).unwrap();
+        let items = r["items"].as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        let idee = items
+            .iter()
+            .find(|i| i["id"].as_u64() == Some(idea))
+            .unwrap();
+        assert_eq!(idee["fill"], "#3a7bd5");
+        assert_eq!(idee["x"].as_f64(), Some(20.0));
+    }
+
+    #[test]
     fn the_syntax_is_there_and_the_tools_are_named_for_their_place() {
         let (ctx, _dir, _rt) = super::super::test_ctx();
         let s = call(&ctx, "notes_syntax", &Args::default()).unwrap();
@@ -1823,9 +2380,9 @@ mod tests {
         assert!(texte.contains("[!thm]") && texte.contains("SUM"));
         let outils = tools();
         let mut noms: Vec<&str> = outils.iter().map(|t| t.name).collect();
-        assert!(noms
-            .iter()
-            .all(|n| n.starts_with("notes_") || n.starts_with("sheets_")));
+        assert!(noms.iter().all(|n| n.starts_with("notes_")
+            || n.starts_with("sheets_")
+            || n.starts_with("boards_")));
         noms.sort_unstable();
         noms.dedup();
         assert_eq!(noms.len(), outils.len());

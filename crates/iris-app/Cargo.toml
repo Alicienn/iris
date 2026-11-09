@@ -45,6 +45,7 @@ iris-notes = { path = "../iris-notes" }
 iris-vault = { path = "../iris-vault" }
 iris-math = { path = "../iris-math" }
 iris-sheets = { path = "../iris-sheets" }
+iris-board = { path = "../iris-board" }
 iris-mcp = { path = "../iris-mcp" }
 iris-search = { workspace = true }
 # The notes' editor lays its text out as Slint does (the same version, already in the

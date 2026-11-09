@@ -1,0 +1,14 @@
+[package]
+name = "iris-board"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Whiteboards without a window: shapes, sticky notes, texts, frames, arrows and pen
+# strokes, where an arrow's ends attach and which way it goes, what lies under a point,
+# and the `.board` file.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

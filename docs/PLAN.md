@@ -1015,3 +1015,17 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S54.4** Side columns made larger after the mockups' variant B: 13 px section
       titles, 36 px title rows, 26 px buttons, 32 px rows; the accounts' search still
       behind its button (7.14.0).
+
+## E55 — Whiteboards (7.15.0)
+
+- [x] **S55.1** `iris-board`: items (shapes, sticky notes, texts, frames, arrows, pen
+      strokes), a palette that follows the theme, the `.board` file, hit tests, frames
+      holding what lies inside, copies that keep their arrows tied (7.15.0).
+- [x] **S55.2** Arrows' ways: ends tied to a side or the outline, straight, at right
+      angles (found, or through the corners the user moved, kept square) or curved;
+      round corners, heads (7.15.0).
+- [x] **S55.3** The board in Notes: an endless canvas zoomed 1–800 %, a grid, the tools,
+      the toolbar over the selection (fill, border, width, font, size, colours, shape,
+      way, heads), handles to resize, "+" to grow a diagram, corners and pieces dragged,
+      text typed in place, a minimap, undo, copy and paste (7.15.0).
+- [x] **S55.4** The assistant's `boards_read`, `boards_add` and `boards_update` (7.15.0).

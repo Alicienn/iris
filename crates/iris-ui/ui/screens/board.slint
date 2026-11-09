@@ -1,0 +1,1669 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { TextField } from "@iris/controls/field.slint";
+import { Segmented } from "@iris/controls/choice.slint";
+import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { BoardItemData, BoardHandleData } from "@iris/types.slint";
+
+// A whiteboard open in Notes: a plane without edges, zoomed and moved here, its items
+// drawn from what Rust gives (board units, one pixel at 100 %). Every press, drag and
+// key goes to Rust, which hit-tests, moves, ties arrows and answers with the items, the
+// handles and what the toolbar shows. The view itself (zoom and offset) lives here, so
+// moving it costs nothing; Rust is told where it is.
+
+export global Board {
+    in property <[BoardItemData]> items;
+    in property <[BoardHandleData]> handles;
+    /// What the toolbar is for: −1 nothing chosen, 0–5 an item's kind, 6 several kinds.
+    in property <int> sel-kind: -1;
+    /// The box around what is chosen (board units), drawn when `sel-box`.
+    in property <float> sel-x;
+    in property <float> sel-y;
+    in property <float> sel-width;
+    in property <float> sel-height;
+    in property <bool> sel-box;
+    /// Something is being dragged: the toolbar steps aside.
+    in property <bool> busy;
+    /// The box being drawn to choose what it covers.
+    in property <bool> marquee;
+    in property <float> marquee-x;
+    in property <float> marquee-y;
+    in property <float> marquee-width;
+    in property <float> marquee-height;
+    // What is chosen looks like this (the first of them), for the toolbar.
+    in property <int> fill: -1;
+    in property <color> fill-custom;
+    in property <int> stroke: -1;
+    in property <color> stroke-custom;
+    in property <int> text-colour: -1;
+    in property <color> text-custom;
+    in property <int> opacity: 100;
+    in property <float> stroke-width: 1.5;
+    in property <int> font;
+    in property <int> font-size: 14;
+    in property <bool> bold;
+    in property <bool> italic;
+    in property <int> align: 1;
+    in property <int> shape: 1;
+    in property <int> way;
+    in property <bool> rounded;
+    in property <int> head-start;
+    in property <int> head-end: 1;
+    in property <bool> locked;
+    /// The box around everything on the board.
+    in property <float> bounds-x;
+    in property <float> bounds-y;
+    in property <float> bounds-width;
+    in property <float> bounds-height;
+    /// 0 choose, 1 move the view, 2 sticky note, 3 shape, 4 text, 5 arrow, 6 pen, 7 frame.
+    in-out property <int> tool;
+    /// The shape the shape tool draws.
+    in property <int> shape-tool: 1;
+    /// The pointer over the board: 0 default, 1 move, 2 crosshair, 3 the four
+    /// resizes (nwse, nesw, ns, ew from 3 to 6), 7 text, 8 pointer.
+    in property <int> cursor;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    // Words being typed in an item: where (board units), and how they look.
+    in property <bool> editing;
+    in property <float> edit-x;
+    in property <float> edit-y;
+    in property <float> edit-width;
+    in property <float> edit-height;
+    in property <string> edit-text;
+    in property <int> edit-serial;
+    in property <int> edit-font;
+    in property <float> edit-size: 14;
+    in property <bool> edit-bold;
+    in property <bool> edit-italic;
+    in property <int> edit-align;
+    in property <bool> edit-middle;
+    in property <int> edit-colour: -1;
+    in property <color> edit-custom;
+    // The view: 1 is 100 %; where the board's origin is in the view.
+    in-out property <float> zoom: 1;
+    in-out property <length> pan-x: 80px;
+    in-out property <length> pan-y: 60px;
+    /// Raised by Rust: the view frames everything (a board opened).
+    in property <int> fit-serial;
+    /// Raised to give the keyboard back to the board.
+    in-out property <int> focus-serial;
+    // A menu over the window: "fill", "stroke", "colour", "font", "width", "shape",
+    // "tool-shape", "start", "end", "more", "canvas".
+    in-out property <string> menu;
+    in-out property <length> menu-x;
+    in-out property <length> menu-y;
+
+    // The colours, in `iris_board::COLOURS`'s order: nine soft fills, the same nine
+    // strong, the paper, the ink, a softer ink, the lines' grey. Each theme its own.
+    out property <[color]> palette: Tokens.dark
+        ? [#4a4120, #4d3519, #4f2522, #4c2230, #3d2a4b, #1d3352, #1b3f46, #1f4229, #333336,
+           #ffd60a, #ff9f0a, #ff453a, #ff375f, #bf5af2, #0a84ff, #40c8e0, #30d158, #98989d,
+           Tokens.surface, Tokens.text, Tokens.text-secondary, Tokens.border-strong]
+        : [#fff3bf, #ffe4cc, #ffdcd9, #ffd9e3, #eedcf8, #d9e9ff, #d4f1f6, #d9f5e0, #ececef,
+           #e0a800, #ff9500, #ff3b30, #ff2d55, #af52de, #007aff, #30b0c7, #34c759, #8e8e93,
+           Tokens.surface, Tokens.text, Tokens.text-secondary, Tokens.border-strong];
+    out property <[string]> colour-names: ["Yellow", "Orange", "Red", "Pink", "Purple", "Blue", "Teal", "Green", "Grey",
+        "Yellow", "Orange", "Red", "Pink", "Purple", "Blue", "Teal", "Green", "Grey",
+        "Paper", "Ink", "Soft ink", "Line"];
+    /// The board's ground: a touch off the paper, so the paper shows on it.
+    out property <color> ground: Tokens.dark ? #19191b : #fafafa;
+
+    public pure function colour(i: int, custom: color) -> color {
+        if (i == -2) {
+            return custom;
+        }
+        if (i >= 0 && i < Board.palette.length) {
+            return Board.palette[i];
+        }
+        return transparent;
+    }
+
+    public pure function font-name(i: int) -> string {
+        if (i == 1) {
+            return Tokens.font-display;
+        }
+        if (i == 2) {
+            return "Georgia";
+        }
+        if (i == 3) {
+            return "Cascadia Mono";
+        }
+        if (i == 4) {
+            return "Segoe Print";
+        }
+        return Tokens.font-family;
+    }
+
+    /// The view moved: its offset (pixels), its zoom, its size (pixels).
+    callback viewport(float, float, float, float, float);
+    /// The pointer: 0 pressed, 1 moved (dragging, or hovering when the button is −1),
+    /// 2 released, 3 double-clicked; the button (0 left, 1 right, −1 none); where, in
+    /// board units; Shift, Ctrl.
+    callback pointer(int, int, float, float, bool, bool);
+    /// A key while the board has the keyboard: its text, Shift, Ctrl (not AltGr).
+    callback key(string, bool, bool) -> bool;
+    callback action(string);
+    /// The words typed, and how high they stand (board units).
+    callback edit-changed(string, float);
+    callback edit-done(string);
+}
+
+// An item drawn: a box or an outline, its words, a sticky note's shadow, a frame's
+// title above it, an arrow's line, heads and words.
+component BoardItem inherits Rectangle {
+    in property <BoardItemData> item;
+    property <length> u: Board.zoom * 1px;
+    property <color> fond: root.item.fill == -1 ? transparent : Board.colour(root.item.fill, root.item.fill-custom).with-alpha(root.item.opacity);
+    property <color> trait: Board.colour(root.item.stroke, root.item.stroke-custom);
+    property <length> epaisseur: root.item.stroke == -1 ? 0px : max(0.5px, root.item.stroke-width * root.u);
+    property <length> marge: root.item.kind == 1 ? 12 * root.u : root.item.kind == 2 ? 2 * root.u : 8 * root.u;
+
+    x: Board.pan-x + root.item.x * root.u;
+    y: Board.pan-y + root.item.y * root.u;
+    width: root.item.width * root.u;
+    height: root.item.height * root.u;
+
+    // A box: a sticky note, a frame, a square or rounded shape, a text with a fill.
+    Rectangle {
+        visible: root.item.kind == 1 || root.item.kind == 3 || (root.item.kind == 0 && root.item.path == "")
+            || (root.item.kind == 2 && root.item.fill != -1);
+        background: root.fond;
+        border-width: root.item.kind == 1 ? 0px : root.epaisseur;
+        border-color: root.trait;
+        border-radius: root.item.kind == 1 ? 2 * root.u : root.item.radius * root.u;
+        drop-shadow-blur: root.item.kind == 1 ? max(1px, 6 * root.u) : 0px;
+        drop-shadow-offset-y: root.item.kind == 1 ? max(0.5px, 2 * root.u) : 0px;
+        drop-shadow-color: root.item.kind == 1 ? Tokens.shadow-card : transparent;
+    }
+    // A shape drawn by its outline; the box grown by the line so the outline lies on it.
+    if root.item.kind == 0 && root.item.path != "": Path {
+        x: -root.epaisseur / 2;
+        y: -root.epaisseur / 2;
+        width: root.width + root.epaisseur;
+        height: root.height + root.epaisseur;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: max(0.01, root.item.width);
+        viewbox-height: max(0.01, root.item.height);
+        commands: root.item.path;
+        fill: root.fond;
+        stroke: root.trait;
+        stroke-width: root.epaisseur;
+        stroke-line-join: round;
+    }
+    // An arrow's line, a pen stroke.
+    if root.item.kind == 4 || root.item.kind == 5: Path {
+        x: -root.epaisseur / 2;
+        y: -root.epaisseur / 2;
+        width: root.width + root.epaisseur;
+        height: root.height + root.epaisseur;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: max(0.01, root.item.width);
+        viewbox-height: max(0.01, root.item.height);
+        commands: root.item.path;
+        fill: transparent;
+        stroke: root.trait;
+        stroke-width: root.epaisseur;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+    if root.item.kind == 4 && root.item.heads != "": Path {
+        width: root.width;
+        height: root.height;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: max(0.01, root.item.width);
+        viewbox-height: max(0.01, root.item.height);
+        commands: root.item.heads;
+        fill: root.trait;
+        stroke: transparent;
+    }
+    // Its words, hidden while typed and when too small to read.
+    if (root.item.kind <= 2) && root.item.text != "" && !root.item.editing && root.item.font-size * Board.zoom >= 1.5: Text {
+        x: root.marge;
+        y: root.marge;
+        width: max(0px, parent.width - 2 * root.marge);
+        height: max(0px, parent.height - 2 * root.marge);
+        text: root.item.text;
+        wrap: word-wrap;
+        font-size: root.item.font-size * root.u;
+        font-family: Board.font-name(root.item.font);
+        font-weight: root.item.bold ? 700 : (root.item.kind == 0 ? 500 : 400);
+        font-italic: root.item.italic;
+        color: Board.colour(root.item.text-colour, root.item.text-custom);
+        horizontal-alignment: root.item.align == 0 ? TextHorizontalAlignment.left : (root.item.align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center);
+        vertical-alignment: root.item.kind == 0 ? TextVerticalAlignment.center : TextVerticalAlignment.top;
+    }
+    // A frame's title, above it, kept readable at every zoom.
+    if root.item.kind == 3 && !root.item.editing: Text {
+        x: 0px;
+        y: -self.height - 4px;
+        width: max(80px, parent.width);
+        text: root.item.text;
+        font-size: clamp(root.item.font-size * root.u, 10px, 16px);
+        font-weight: 600;
+        color: Tokens.text-muted;
+        overflow: elide;
+    }
+    // An arrow's words, on a patch of the ground halfway along.
+    if root.item.kind == 4 && root.item.text != "" && !root.item.editing && root.item.font-size * Board.zoom >= 1.5: Rectangle {
+        x: (root.item.label-x - root.item.x) * root.u - self.width / 2;
+        y: (root.item.label-y - root.item.y) * root.u - self.height / 2;
+        width: etiquette.preferred-width + 10 * root.u;
+        height: etiquette.preferred-height + 2 * root.u;
+        background: Board.ground;
+        border-radius: 4 * root.u;
+        etiquette := Text {
+            text: root.item.text;
+            font-size: root.item.font-size * root.u;
+            font-family: Board.font-name(root.item.font);
+            font-weight: root.item.bold ? 700 : 400;
+            font-italic: root.item.italic;
+            color: Board.colour(root.item.text-colour, root.item.text-custom);
+        }
+    }
+}
+
+// A handle: a square to resize, a dot to tie to, an arrow's end, corner or middle, the
+// "+" that starts an arrow (set 18 pixels out of its side).
+component BoardHandle inherits Rectangle {
+    in property <BoardHandleData> handle;
+    property <int> k: root.handle.kind;
+    property <length> cote: root.k == 0 ? 9px : root.k == 2 ? 9px : root.k == 3 || root.k == 4 || root.k == 7 ? 12px
+        : root.k == 5 ? 11px : root.k == 6 ? 8px : 16px;
+    property <length> dx: root.k == 11 ? 18px : root.k == 13 ? -18px : 0px;
+    property <length> dy: root.k == 10 ? -18px : root.k == 12 ? 18px : 0px;
+    x: Board.pan-x + root.handle.x * Board.zoom * 1px + root.dx - root.cote / 2;
+    y: Board.pan-y + root.handle.y * Board.zoom * 1px + root.dy - root.cote / 2;
+    width: root.cote;
+    height: root.cote;
+
+    Rectangle {
+        border-radius: root.k == 0 ? 2px : root.cote / 2;
+        background: root.k == 3 || root.k == 7 || root.k >= 10 ? Tokens.accent
+            : root.k == 6 ? Tokens.accent.with-alpha(0.5) : Tokens.surface;
+        border-width: root.k == 6 ? 0px : root.k == 3 || root.k == 5 ? 2px : 1.5px;
+        border-color: root.k == 3 || root.k >= 10 ? Tokens.surface : Tokens.accent;
+    }
+    if root.k >= 10: Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        data: Icons.plus;
+        size: 10px;
+        weight: 2.4;
+        tint: Tokens.accent-text;
+    }
+}
+
+// A colour to pick in the toolbar: its swatch, a ring for a border.
+component ColourButton inherits Rectangle {
+    in property <color> colour;
+    in property <bool> none;
+    in property <bool> ring;
+    in property <bool> active;
+    in property <string> label;
+    callback clicked();
+    width: 32px;
+    height: 32px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: Tokens.radius-medium;
+        background: root.active || zone.pressed ? Tokens.surface-active : zone.has-hover ? Tokens.surface-hover : transparent;
+    }
+    Rectangle {
+        x: 7px;
+        y: 7px;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: root.ring || root.none ? transparent : root.colour;
+        border-width: root.ring ? 3px : 1px;
+        border-color: root.ring ? (root.none ? Tokens.border-strong : root.colour) : Tokens.border-strong;
+    }
+    if root.none: Path {
+        x: 7px;
+        y: 7px;
+        width: 18px;
+        height: 18px;
+        viewbox-width: 18;
+        viewbox-height: 18;
+        commands: "M 4 14 L 14 4";
+        stroke: Tokens.red;
+        stroke-width: 1.5px;
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// A word with a chevron: the font, a head, a shape.
+component ChoiceButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> active;
+    in property <length> min-width: 0px;
+    callback clicked();
+    height: 32px;
+    width: max(root.min-width, rang.preferred-width);
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: Tokens.radius-medium;
+        background: root.active || zone.pressed ? Tokens.surface-active : zone.has-hover ? Tokens.surface-hover : transparent;
+    }
+    rang := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 4px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 16px;
+            tint: Tokens.text-secondary;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            font-size: 13px;
+            color: Tokens.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.chevron-down;
+            size: 10px;
+            tint: Tokens.text-muted;
+        }
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// A letter to switch: B, I.
+component LetterButton inherits Rectangle {
+    in property <string> letter;
+    in property <bool> active;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <int> weight: 400;
+    in property <bool> italic;
+    callback clicked();
+    width: 30px;
+    height: 32px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: Tokens.radius-medium;
+        background: root.active || zone.pressed ? Tokens.surface-active : zone.has-hover ? Tokens.surface-hover : transparent;
+    }
+    Text {
+        text: root.letter;
+        font-size: 14px;
+        font-weight: root.weight;
+        font-italic: root.italic;
+        font-family: root.italic ? "Georgia" : Tokens.font-family;
+        color: root.active ? Tokens.text : Tokens.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// The size of the words: −, the size, +.
+component SizeStepper inherits Rectangle {
+    in property <int> value;
+    callback step(int);
+    width: 86px;
+    height: 28px;
+    Rectangle {
+        border-radius: Tokens.radius-small;
+        border-width: 1px;
+        border-color: Tokens.border;
+    }
+    HorizontalLayout {
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.minus;
+            label: "Smaller text";
+            button-size: 26px;
+            icon-size: 12px;
+            clicked => { root.step(-1); }
+        }
+        Text {
+            text: root.value;
+            font-size: 13px;
+            font-weight: 600;
+            color: Tokens.text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.plus;
+            label: "Larger text";
+            button-size: 26px;
+            icon-size: 12px;
+            clicked => { root.step(1); }
+        }
+    }
+}
+
+component BarSeparator inherits Rectangle {
+    width: 9px;
+    Rectangle {
+        x: 4px;
+        y: 8px;
+        width: 1px;
+        height: parent.height - 16px;
+        background: Tokens.border;
+    }
+}
+
+// A floating card: the tools, the zoom, the toolbar.
+component Card inherits Rectangle {
+    Rectangle {
+        border-radius: 10px;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.border;
+        drop-shadow-blur: Tokens.shadow-float-blur / 2;
+        drop-shadow-offset-y: Tokens.shadow-float-y / 2;
+        drop-shadow-color: Tokens.shadow-float;
+    }
+    @children
+}
+
+export component BoardView inherits Rectangle {
+    background: Board.ground;
+    clip: true;
+
+    property <float> z: Board.zoom;
+    property <length> ox: Board.pan-x;
+    property <length> oy: Board.pan-y;
+    // The view moved by hand: a new size no longer frames everything again.
+    property <bool> vu;
+    property <length> depart-x;
+    property <length> depart-y;
+    // The view carried by the hand tool or the middle button.
+    property <bool> panning;
+    property <bool> shift;
+    property <bool> ctrl;
+
+    function report() {
+        Board.viewport(Board.pan-x / 1px, Board.pan-y / 1px, Board.zoom, root.width / 1px, root.height / 1px);
+    }
+    changed z => { root.report(); }
+    changed ox => { root.report(); }
+    changed oy => { root.report(); }
+    changed width => {
+        if (!root.vu) {
+            root.cadrer();
+        }
+        root.report();
+    }
+    changed height => {
+        if (!root.vu) {
+            root.cadrer();
+        }
+        root.report();
+    }
+
+    // Everything framed, at 100 % at most; an empty board shows its origin.
+    function cadrer() {
+        let bw = Board.bounds-width;
+        let bh = Board.bounds-height;
+        if (root.width <= 0px || root.height <= 0px) {
+            return;
+        }
+        if (bw <= 0 || bh <= 0) {
+            Board.zoom = 1;
+            Board.pan-x = root.width / 2 - Board.bounds-x * 1px;
+            Board.pan-y = root.height / 2 - Board.bounds-y * 1px;
+            return;
+        }
+        let marge = Layout.compact ? 24px : 80px;
+        let zz = clamp(min((root.width - 2 * marge) / 1px / bw, (root.height - 2 * marge) / 1px / bh), 0.01, 1);
+        Board.zoom = zz;
+        Board.pan-x = (root.width - bw * zz * 1px) / 2 - Board.bounds-x * zz * 1px;
+        Board.pan-y = (root.height - bh * zz * 1px) / 2 - Board.bounds-y * zz * 1px;
+    }
+
+    // Zoomed to `n`, the point (px, py) of the view staying where it is. Down to 1 %:
+    // as far out as one likes in practice.
+    function zoomer(n: float, px: length, py: length) {
+        let nz = clamp(n, 0.01, 8);
+        Board.pan-x = px - (px - Board.pan-x) * (nz / Board.zoom);
+        Board.pan-y = py - (py - Board.pan-y) * (nz / Board.zoom);
+        Board.zoom = nz;
+        root.vu = true;
+    }
+
+    function molette(event: PointerScrollEvent, px: length, py: length) {
+        if (event.modifiers.control) {
+            root.zoomer(Board.zoom * pow(1.0025, event.delta-y / 1px), px, py);
+        } else if (event.modifiers.shift && event.delta-x == 0px) {
+            Board.pan-x += event.delta-y;
+            root.vu = true;
+        } else {
+            Board.pan-x += event.delta-x;
+            Board.pan-y += event.delta-y;
+            root.vu = true;
+        }
+    }
+
+    function menu(kind: string, x: length, y: length) {
+        Board.menu-x = x;
+        Board.menu-y = y;
+        Board.menu = kind;
+    }
+
+    init => {
+        root.cadrer();
+        root.report();
+    }
+    property <int> cadrage: Board.fit-serial;
+    changed cadrage => {
+        root.vu = false;
+        root.cadrer();
+    }
+    property <int> demande: Board.focus-serial;
+    changed demande => { touches.focus(); }
+
+    // The keyboard of the board: Rust decides what each key does; the view's own keys
+    // (zoom) are handled here.
+    touches := FocusScope {
+        width: 0px;
+        height: 0px;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (Board.menu != "") {
+                if (event.text == Key.Escape) {
+                    Board.menu = "";
+                }
+                return accept;
+            }
+            if (event.text == Key.Shift || event.text == Key.Control || event.text == Key.Alt
+                || event.text == Key.AltGr || event.text == Key.Meta) {
+                return reject;
+            }
+            let ctrl = event.modifiers.control && !event.modifiers.alt;
+            if (ctrl && event.text == "0") {
+                root.zoomer(1, root.width / 2, root.height / 2);
+                return accept;
+            }
+            if (ctrl && (event.text == "=" || event.text == "+")) {
+                root.zoomer(Board.zoom * 1.25, root.width / 2, root.height / 2);
+                return accept;
+            }
+            if (ctrl && event.text == "-") {
+                root.zoomer(Board.zoom / 1.25, root.width / 2, root.height / 2);
+                return accept;
+            }
+            if (event.modifiers.shift && !ctrl && (event.text == "!" || event.text == "1")) {
+                root.vu = false;
+                root.cadrer();
+                return accept;
+            }
+            if (Board.key(event.text, event.modifiers.shift, ctrl)) {
+                return accept;
+            }
+            reject
+        }
+    }
+
+    // The grid: faint lines every 20 units, every 100 or 500 when they come too close.
+    property <length> pas-1: 20 * Board.zoom * 1px;
+    property <length> pas: root.pas-1 >= 12px ? root.pas-1
+        : root.pas-1 * 5 >= 12px ? root.pas-1 * 5
+        : root.pas-1 * 25 >= 12px ? root.pas-1 * 25
+        : root.pas-1 * 125 >= 12px ? root.pas-1 * 125 : root.pas-1 * 625;
+    property <length> gx: Board.pan-x - floor(Board.pan-x / root.pas) * root.pas;
+    property <length> gy: Board.pan-y - floor(Board.pan-y / root.pas) * root.pas;
+    property <color> ligne: Tokens.dark ? #ffffff0c : #0000000a;
+    for i in ceil(root.width / root.pas) + 1: Rectangle {
+        x: root.gx + i * root.pas;
+        width: 1px;
+        height: root.height;
+        background: root.ligne;
+    }
+    for j in ceil(root.height / root.pas) + 1: Rectangle {
+        y: root.gy + j * root.pas;
+        height: 1px;
+        width: root.width;
+        background: root.ligne;
+    }
+
+    for it in Board.items: BoardItem {
+        item: it;
+    }
+
+    // What is chosen: its box.
+    Rectangle {
+        visible: Board.sel-kind >= 0 && Board.sel-box;
+        x: Board.pan-x + Board.sel-x * Board.zoom * 1px - 4px;
+        y: Board.pan-y + Board.sel-y * Board.zoom * 1px - 4px;
+        width: Board.sel-width * Board.zoom * 1px + 8px;
+        height: Board.sel-height * Board.zoom * 1px + 8px;
+        border-width: 1.5px;
+        border-color: Tokens.accent;
+        border-radius: 3px;
+    }
+    // The box being drawn to choose.
+    Rectangle {
+        visible: Board.marquee;
+        x: Board.pan-x + Board.marquee-x * Board.zoom * 1px;
+        y: Board.pan-y + Board.marquee-y * Board.zoom * 1px;
+        width: Board.marquee-width * Board.zoom * 1px;
+        height: Board.marquee-height * Board.zoom * 1px;
+        background: Tokens.accent-soft;
+        border-width: 1px;
+        border-color: Tokens.accent;
+    }
+    for h in Board.handles: BoardHandle {
+        handle: h;
+    }
+
+    // Every press and drag on the board goes to Rust, in board units; the hand tool and
+    // the middle button move the view here.
+    zone := TouchArea {
+        mouse-cursor: root.panning ? MouseCursor.grabbing
+            : Board.tool == 1 ? MouseCursor.grab
+            : Board.cursor == 1 ? MouseCursor.move
+            : Board.cursor == 2 ? MouseCursor.crosshair
+            : Board.cursor == 3 ? MouseCursor.nwse-resize
+            : Board.cursor == 4 ? MouseCursor.nesw-resize
+            : Board.cursor == 5 ? MouseCursor.ns-resize
+            : Board.cursor == 6 ? MouseCursor.ew-resize
+            : Board.cursor == 7 ? MouseCursor.text
+            : Board.cursor == 8 ? MouseCursor.pointer
+            : MouseCursor.default;
+        pointer-event(event) => {
+            root.shift = event.modifiers.shift;
+            root.ctrl = event.modifiers.control;
+            let bx = (self.mouse-x - Board.pan-x) / Board.zoom / 1px;
+            let by = (self.mouse-y - Board.pan-y) / Board.zoom / 1px;
+            if (event.kind == PointerEventKind.down) {
+                if (Board.menu != "") {
+                    Board.menu = "";
+                }
+                if (event.button == PointerEventButton.middle || (event.button == PointerEventButton.left && Board.tool == 1)) {
+                    root.panning = true;
+                    root.depart-x = Board.pan-x;
+                    root.depart-y = Board.pan-y;
+                    touches.focus();
+                    return;
+                }
+                if (event.button == PointerEventButton.left) {
+                    if (!Board.editing) {
+                        touches.focus();
+                    }
+                    Board.pointer(0, 0, bx, by, event.modifiers.shift, event.modifiers.control);
+                    if (!Board.editing) {
+                        touches.focus();
+                    }
+                } else if (event.button == PointerEventButton.right) {
+                    touches.focus();
+                    Board.pointer(0, 1, bx, by, event.modifiers.shift, event.modifiers.control);
+                    root.menu(Board.sel-kind >= 0 ? "more" : "canvas",
+                        self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                }
+            } else if (event.kind == PointerEventKind.up) {
+                if (root.panning) {
+                    root.panning = false;
+                    return;
+                }
+                if (event.button == PointerEventButton.left) {
+                    Board.pointer(2, 0, bx, by, event.modifiers.shift, event.modifiers.control);
+                }
+            } else if (event.kind == PointerEventKind.move && !self.pressed) {
+                Board.pointer(1, -1, bx, by, event.modifiers.shift, event.modifiers.control);
+            }
+        }
+        moved => {
+            if (root.panning) {
+                Board.pan-x = root.depart-x + self.mouse-x - self.pressed-x;
+                Board.pan-y = root.depart-y + self.mouse-y - self.pressed-y;
+                root.vu = true;
+                return;
+            }
+            Board.pointer(1, 0, (self.mouse-x - Board.pan-x) / Board.zoom / 1px,
+                (self.mouse-y - Board.pan-y) / Board.zoom / 1px, root.shift, root.ctrl);
+        }
+        double-clicked => {
+            if (Board.tool != 1) {
+                Board.pointer(3, 0, (self.mouse-x - Board.pan-x) / Board.zoom / 1px,
+                    (self.mouse-y - Board.pan-y) / Board.zoom / 1px, root.shift, root.ctrl);
+            }
+        }
+        scroll-event(event) => {
+            root.molette(event, self.mouse-x, self.mouse-y);
+            accept
+        }
+    }
+
+    // Words being typed in an item, in its type, over it.
+    if Board.editing: Rectangle {
+        x: Board.pan-x + Board.edit-x * Board.zoom * 1px;
+        y: Board.pan-y + Board.edit-y * Board.zoom * 1px;
+        width: max(20px, Board.edit-width * Board.zoom * 1px);
+        height: max(saisie.preferred-height, Board.edit-height * Board.zoom * 1px);
+        saisie := TextInput {
+            width: parent.width;
+            height: parent.height;
+            text: Board.edit-text;
+            wrap: word-wrap;
+            single-line: false;
+            font-size: Board.edit-size * Board.zoom * 1px;
+            font-family: Board.font-name(Board.edit-font);
+            font-weight: Board.edit-bold ? 700 : 400;
+            font-italic: Board.edit-italic;
+            color: Board.colour(Board.edit-colour, Board.edit-custom);
+            horizontal-alignment: Board.edit-align == 0 ? TextHorizontalAlignment.left : (Board.edit-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center);
+            vertical-alignment: Board.edit-middle ? TextVerticalAlignment.center : TextVerticalAlignment.top;
+            selection-background-color: Tokens.accent.transparentize(0.7);
+            init => {
+                self.focus();
+                self.select-all();
+            }
+            property <int> demande: Board.edit-serial;
+            changed demande => {
+                self.text = Board.edit-text;
+                self.focus();
+                self.select-all();
+            }
+            edited => {
+                Board.edit-changed(self.text, self.preferred-height / max(0.01, Board.zoom) / 1px);
+            }
+            key-pressed(event) => {
+                if (event.text == Key.Escape || (event.text == Key.Return && event.modifiers.control)) {
+                    Board.edit-done(self.text);
+                    touches.focus();
+                    return accept;
+                }
+                reject
+            }
+        }
+    }
+
+    // The tools, on the left.
+    Card {
+        x: 12px;
+        y: max(12px, (parent.height - self.height) / 2);
+        width: 46px;
+        height: outils.preferred-height;
+        outils := VerticalLayout {
+            padding: 5px;
+            spacing: 2px;
+            IconButton {
+                icon: Icons.cursor;
+                label: "Select";
+                shortcut: "V";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 0;
+                tinted: Board.tool == 0;
+                tint: Tokens.accent;
+                clicked => { Board.action("tool:0"); touches.focus(); }
+            }
+            IconButton {
+                icon: Icons.hand;
+                label: "Move the view";
+                shortcut: "H";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 1;
+                tinted: Board.tool == 1;
+                tint: Tokens.accent;
+                clicked => { Board.action("tool:1"); touches.focus(); }
+            }
+            Rectangle {
+                height: 7px;
+                Rectangle {
+                    x: 4px;
+                    y: 3px;
+                    width: parent.width - 8px;
+                    height: 1px;
+                    background: Tokens.border;
+                }
+            }
+            IconButton {
+                icon: Icons.sticky;
+                label: "Sticky note";
+                shortcut: "N";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 2;
+                tinted: Board.tool == 2;
+                tint: Tokens.accent;
+                clicked => { Board.action("tool:2"); touches.focus(); }
+            }
+            outil-forme := IconButton {
+                icon: Icons.shapes;
+                label: "Shape (choose which)";
+                shortcut: "S";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 3;
+                tinted: Board.tool == 3;
+                tint: Tokens.accent;
+                clicked => {
+                    Board.action("tool:3");
+                    root.menu("tool-shape", self.absolute-position.x + self.width + 8px, self.absolute-position.y);
+                }
+            }
+            IconButton {
+                icon: Icons.text-tool;
+                label: "Text";
+                shortcut: "T";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 4;
+                tinted: Board.tool == 4;
+                tint: Tokens.accent;
+                clicked => { Board.action("tool:4"); touches.focus(); }
+            }
+            IconButton {
+                icon: Icons.connector;
+                label: "Arrow";
+                shortcut: "A";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 5;
+                tinted: Board.tool == 5;
+                tint: Tokens.accent;
+                clicked => { Board.action("tool:5"); touches.focus(); }
+            }
+            IconButton {
+                icon: Icons.pencil;
+                label: "Pen";
+                shortcut: "P";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 6;
+                tinted: Board.tool == 6;
+                tint: Tokens.accent;
+                clicked => { Board.action("tool:6"); touches.focus(); }
+            }
+            IconButton {
+                icon: Icons.frame;
+                label: "Frame";
+                shortcut: "F";
+                button-size: 36px;
+                icon-size: 18px;
+                active: Board.tool == 7;
+                tinted: Board.tool == 7;
+                tint: Tokens.accent;
+                clicked => { Board.action("tool:7"); touches.focus(); }
+            }
+        }
+    }
+
+    // What is chosen: its toolbar, above it (under it when there is no room).
+    property <length> sx: Board.pan-x + Board.sel-x * Board.zoom * 1px;
+    property <length> sy: Board.pan-y + Board.sel-y * Board.zoom * 1px;
+    property <length> sw: Board.sel-width * Board.zoom * 1px;
+    property <length> sh: Board.sel-height * Board.zoom * 1px;
+    if Board.sel-kind >= 0 && !Board.busy: Card {
+        x: clamp(root.sx + root.sw / 2 - self.width / 2, 66px, max(66px, root.width - self.width - 8px));
+        y: root.sy - self.height - 26px >= 8px ? root.sy - self.height - 26px
+            : min(root.height - self.height - 8px, root.sy + root.sh + 26px);
+        width: barre.preferred-width;
+        height: 42px;
+        barre := HorizontalLayout {
+            padding-left: 5px;
+            padding-right: 5px;
+            spacing: 1px;
+            alignment: start;
+            // A shape: which.
+            if Board.sel-kind == 0: ChoiceButton {
+                y: 5px;
+                icon: Icons.shapes;
+                label: "Shape";
+                active: Board.menu == "shape";
+                clicked => { root.menu("shape", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            if Board.sel-kind == 0: BarSeparator { }
+            // An arrow: its way, its corners, its heads.
+            if Board.sel-kind == 4: Rectangle {
+                width: way.preferred-width;
+                way := HorizontalLayout {
+                    spacing: 1px;
+                    IconButton {
+                        y: 5px;
+                        icon: Icons.line-straight;
+                        label: "Straight";
+                        button-size: 32px;
+                        active: Board.way == 0;
+                        clicked => { Board.action("way:0"); }
+                    }
+                    IconButton {
+                        y: 5px;
+                        icon: Icons.line-elbow;
+                        label: "Right angles";
+                        button-size: 32px;
+                        active: Board.way == 1;
+                        clicked => { Board.action("way:1"); }
+                    }
+                    IconButton {
+                        y: 5px;
+                        icon: Icons.line-curve;
+                        label: "Curved";
+                        button-size: 32px;
+                        active: Board.way == 2;
+                        clicked => { Board.action("way:2"); }
+                    }
+                    if Board.way != 2: IconButton {
+                        y: 5px;
+                        icon: Icons.corners;
+                        label: Board.rounded ? "Square corners" : "Round corners";
+                        button-size: 32px;
+                        active: Board.rounded;
+                        clicked => { Board.action("rounded"); }
+                    }
+                }
+            }
+            if Board.sel-kind == 4: BarSeparator { }
+            if Board.sel-kind == 4: ChoiceButton {
+                y: 5px;
+                icon: Board.head-start == 1 ? Icons.head-arrow : Board.head-start == 2 ? Icons.head-dot : Board.head-start == 3 ? Icons.head-diamond : Icons.head-none;
+                label: "Start";
+                active: Board.menu == "start";
+                clicked => { root.menu("start", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            if Board.sel-kind == 4: ChoiceButton {
+                y: 5px;
+                icon: Board.head-end == 1 ? Icons.head-arrow : Board.head-end == 2 ? Icons.head-dot : Board.head-end == 3 ? Icons.head-diamond : Icons.head-none;
+                label: "End";
+                active: Board.menu == "end";
+                clicked => { root.menu("end", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            if Board.sel-kind == 4: BarSeparator { }
+            // Its colours.
+            if Board.sel-kind != 4 && Board.sel-kind != 5: ColourButton {
+                y: 5px;
+                colour: Board.colour(Board.fill, Board.fill-custom);
+                none: Board.fill == -1;
+                label: "Fill colour";
+                active: Board.menu == "fill";
+                clicked => { root.menu("fill", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            if Board.sel-kind == 0 || Board.sel-kind == 3 || Board.sel-kind == 4 || Board.sel-kind == 5 || Board.sel-kind == 6: ColourButton {
+                y: 5px;
+                colour: Board.colour(Board.stroke, Board.stroke-custom);
+                none: Board.stroke == -1;
+                ring: Board.sel-kind != 4 && Board.sel-kind != 5;
+                label: Board.sel-kind == 4 || Board.sel-kind == 5 ? "Line colour" : "Border colour";
+                active: Board.menu == "stroke";
+                clicked => { root.menu("stroke", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            if Board.sel-kind == 0 || Board.sel-kind == 4 || Board.sel-kind == 5: IconButton {
+                y: 5px;
+                icon: Icons.weight;
+                label: "Line width";
+                button-size: 32px;
+                active: Board.menu == "width";
+                clicked => { root.menu("width", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            // Its words.
+            if Board.sel-kind <= 2: BarSeparator { }
+            if Board.sel-kind <= 2: ChoiceButton {
+                y: 5px;
+                text: ["Sans", "Display", "Serif", "Mono", "Handwriting"][Board.font];
+                label: "Font";
+                min-width: 92px;
+                active: Board.menu == "font";
+                clicked => { root.menu("font", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            if Board.sel-kind <= 2: SizeStepper {
+                y: 7px;
+                value: Board.font-size;
+                step(d) => { Board.action(d > 0 ? "size+" : "size-"); }
+            }
+            if Board.sel-kind <= 2 || Board.sel-kind == 4: LetterButton {
+                y: 5px;
+                letter: "B";
+                weight: 700;
+                label: "Bold";
+                shortcut: "Ctrl+B";
+                active: Board.bold;
+                clicked => { Board.action("bold"); }
+            }
+            if Board.sel-kind <= 2 || Board.sel-kind == 4: LetterButton {
+                y: 5px;
+                letter: "I";
+                italic: true;
+                label: "Italic";
+                shortcut: "Ctrl+I";
+                active: Board.italic;
+                clicked => { Board.action("italic"); }
+            }
+            if Board.sel-kind <= 2 || Board.sel-kind == 4 || Board.sel-kind == 6: Rectangle {
+                width: 32px;
+                accessible-role: button;
+                accessible-label: "Text colour";
+                Rectangle {
+                    y: 5px;
+                    height: 32px;
+                    border-radius: Tokens.radius-medium;
+                    background: Board.menu == "colour" || texte.pressed ? Tokens.surface-active : texte.has-hover ? Tokens.surface-hover : transparent;
+                }
+                Text {
+                    y: 9px;
+                    height: 18px;
+                    width: parent.width;
+                    text: "A";
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    horizontal-alignment: center;
+                }
+                Rectangle {
+                    x: 9px;
+                    y: 28px;
+                    width: 14px;
+                    height: 3px;
+                    border-radius: 1.5px;
+                    background: Board.colour(Board.text-colour, Board.text-custom);
+                }
+                texte := TouchArea {
+                    clicked => { root.menu("colour", self.absolute-position.x, self.absolute-position.y + 42px); }
+                }
+            }
+            if Board.sel-kind <= 2: IconButton {
+                y: 5px;
+                icon: Board.align == 0 ? Icons.align-left : Board.align == 2 ? Icons.align-right : Icons.align-center;
+                label: "Alignment";
+                button-size: 32px;
+                clicked => { Board.action("align"); }
+            }
+            BarSeparator { }
+            IconButton {
+                y: 5px;
+                icon: Icons.more;
+                label: "More";
+                button-size: 32px;
+                active: Board.menu == "more";
+                clicked => { root.menu("more", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+        }
+    }
+
+    // Undo and Redo, at the bottom left.
+    Card {
+        x: 12px;
+        y: parent.height - self.height - 12px;
+        width: annuler.preferred-width;
+        height: 40px;
+        annuler := HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
+            spacing: 1px;
+            IconButton {
+                y: 4px;
+                icon: Icons.undo;
+                label: "Undo";
+                shortcut: "Ctrl+Z";
+                button-size: 32px;
+                enabled: Board.can-undo;
+                clicked => { Board.action("undo"); touches.focus(); }
+            }
+            IconButton {
+                y: 4px;
+                icon: Icons.redo;
+                label: "Redo";
+                shortcut: "Ctrl+Y";
+                button-size: 32px;
+                enabled: Board.can-redo;
+                clicked => { Board.action("redo"); touches.focus(); }
+            }
+        }
+    }
+
+    // The whole board small, the view on it; a press moves the view there.
+    property <float> vx: -Board.pan-x / Board.zoom / 1px;
+    property <float> vy: -Board.pan-y / Board.zoom / 1px;
+    property <float> vw: root.width / Board.zoom / 1px;
+    property <float> vh: root.height / Board.zoom / 1px;
+    property <float> ex0: min(Board.bounds-x, root.vx);
+    property <float> ey0: min(Board.bounds-y, root.vy);
+    property <float> ex1: max(Board.bounds-x + Board.bounds-width, root.vx + root.vw);
+    property <float> ey1: max(Board.bounds-y + Board.bounds-height, root.vy + root.vh);
+    property <float> ek: min(172 / max(1, root.ex1 - root.ex0), 104 / max(1, root.ey1 - root.ey0));
+    if !Layout.compact: Card {
+        x: parent.width - self.width - 12px;
+        y: parent.height - self.height - 62px;
+        width: 184px;
+        height: 116px;
+        Rectangle {
+            x: 6px;
+            y: 6px;
+            width: 172px;
+            height: 104px;
+            clip: true;
+            for it in Board.items: Rectangle {
+                visible: it.kind != 4;
+                x: (it.x - root.ex0) * root.ek * 1px;
+                y: (it.y - root.ey0) * root.ek * 1px;
+                width: max(1px, it.width * root.ek * 1px);
+                height: max(1px, it.height * root.ek * 1px);
+                border-radius: 1px;
+                background: it.kind == 5 ? transparent : it.fill != -1 ? Board.colour(it.fill, it.fill-custom) : Board.colour(it.stroke, it.stroke-custom).with-alpha(0.4);
+                border-width: it.kind == 5 || it.kind == 3 ? 1px : 0px;
+                border-color: Board.colour(it.stroke, it.stroke-custom);
+            }
+            Rectangle {
+                x: (root.vx - root.ex0) * root.ek * 1px;
+                y: (root.vy - root.ey0) * root.ek * 1px;
+                width: root.vw * root.ek * 1px;
+                height: root.vh * root.ek * 1px;
+                background: Tokens.accent-soft;
+                border-width: 1.5px;
+                border-color: Tokens.accent;
+                border-radius: 3px;
+            }
+            TouchArea {
+                function aller() {
+                    let bx = root.ex0 + self.mouse-x / 1px / root.ek;
+                    let by = root.ey0 + self.mouse-y / 1px / root.ek;
+                    Board.pan-x = root.width / 2 - bx * Board.zoom * 1px;
+                    Board.pan-y = root.height / 2 - by * Board.zoom * 1px;
+                    root.vu = true;
+                }
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                        self.aller();
+                    }
+                }
+                moved => {
+                    if (self.pressed) {
+                        self.aller();
+                    }
+                }
+            }
+        }
+    }
+
+    // The zoom, at the bottom right: −, the zoom (100 % when clicked), +, everything.
+    Card {
+        x: parent.width - self.width - 12px;
+        y: parent.height - self.height - 12px;
+        width: zoom.preferred-width;
+        height: 40px;
+        zoom := HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
+            spacing: 1px;
+            IconButton {
+                y: 4px;
+                icon: Icons.minus;
+                label: "Zoom out";
+                shortcut: "Ctrl+-";
+                button-size: 32px;
+                enabled: Board.zoom > 0.01;
+                clicked => { root.zoomer(Board.zoom / 1.25, root.width / 2, root.height / 2); touches.focus(); }
+            }
+            Rectangle {
+                width: 54px;
+                accessible-role: button;
+                accessible-label: "Zoom to 100 %";
+                Text {
+                    text: Board.zoom < 0.1 ? "\{round(Board.zoom * 1000) / 10} %" : "\{round(Board.zoom * 100)} %";
+                    font-size: 12.5px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { root.zoomer(1, root.width / 2, root.height / 2); touches.focus(); }
+                }
+            }
+            IconButton {
+                y: 4px;
+                icon: Icons.plus;
+                label: "Zoom in";
+                shortcut: "Ctrl++";
+                button-size: 32px;
+                enabled: Board.zoom < 8;
+                clicked => { root.zoomer(Board.zoom * 1.25, root.width / 2, root.height / 2); touches.focus(); }
+            }
+            BarSeparator { }
+            IconButton {
+                y: 4px;
+                icon: Icons.expand;
+                label: "Fit everything in view";
+                shortcut: "Shift+1";
+                button-size: 32px;
+                clicked => {
+                    root.vu = false;
+                    root.cadrer();
+                    touches.focus();
+                }
+            }
+        }
+    }
+}
+
+// A swatch in the colour menu.
+component PaletteSwatch inherits Rectangle {
+    in property <color> colour;
+    in property <bool> none;
+    in property <bool> chosen;
+    in property <string> label;
+    callback clicked();
+    width: 26px;
+    height: 26px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-item-selected: root.chosen;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: 9px;
+        border-width: root.chosen ? 2px : 0px;
+        border-color: Tokens.accent;
+    }
+    Rectangle {
+        border-radius: 7px;
+        background: root.none ? Tokens.surface : root.colour;
+        border-width: zone.has-hover ? 2px : 1px;
+        border-color: zone.has-hover ? Tokens.accent : Tokens.border;
+    }
+    if root.none: Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 26;
+        viewbox-height: 26;
+        commands: "M 6 20 L 20 6";
+        stroke: Tokens.red;
+        stroke-width: 1.6px;
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// A shape to pick, drawn small.
+component ShapeChoice inherits Rectangle {
+    in property <int> shape;
+    in property <bool> chosen;
+    callback clicked();
+    width: 40px;
+    height: 34px;
+    accessible-role: button;
+    accessible-label: ["Square", "Rounded", "Ellipse", "Diamond", "Triangle", "Parallelogram", "Hexagon", "Star"][root.shape];
+    accessible-item-selected: root.chosen;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: Tokens.radius-medium;
+        background: root.chosen ? Tokens.accent-soft : zone.has-hover ? Tokens.surface-hover : transparent;
+        border-width: root.chosen ? 1px : 0px;
+        border-color: Tokens.accent;
+    }
+    Path {
+        x: 8px;
+        y: 6px;
+        width: 24px;
+        height: 22px;
+        viewbox-width: 28;
+        viewbox-height: 24;
+        commands: ["M 1 2 H 27 V 22 H 1 Z",
+            "M 7 2 H 21 A 6 6 0 0 1 27 8 V 16 A 6 6 0 0 1 21 22 H 7 A 6 6 0 0 1 1 16 V 8 A 6 6 0 0 1 7 2 Z",
+            "M 1 12 A 13 10 0 1 0 27 12 A 13 10 0 1 0 1 12 Z",
+            "M 14 1 L 27 12 L 14 23 L 1 12 Z",
+            "M 14 1 L 27 23 L 1 23 Z",
+            "M 7 2 H 27 L 21 22 H 1 Z",
+            "M 7 2 H 21 L 27 12 L 21 22 H 7 L 1 12 Z",
+            "M 14 1 L 17.3 8.6 L 26 9.4 L 19.4 15 L 21.4 23 L 14 18.8 L 6.6 23 L 8.6 15 L 2 9.4 L 10.7 8.6 Z"][root.shape];
+        fill: transparent;
+        stroke: root.chosen ? Tokens.accent : Tokens.text-secondary;
+        stroke-width: 1.5px;
+        stroke-line-join: round;
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// A font, written in itself.
+component FontChoice inherits Rectangle {
+    in property <int> font;
+    in property <bool> chosen;
+    callback clicked();
+    height: 32px;
+    accessible-role: button;
+    accessible-label: ["Sans", "Display", "Serif", "Mono", "Handwriting"][root.font];
+    accessible-item-selected: root.chosen;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: Tokens.radius-small;
+        background: root.chosen ? Tokens.accent-soft : zone.has-hover ? Tokens.surface-hover : transparent;
+    }
+    Text {
+        x: 10px;
+        text: ["Sans", "Display", "Serif", "Mono", "Handwriting"][root.font];
+        font-family: Board.font-name(root.font);
+        font-size: root.font == 4 ? 13px : 14px;
+        font-weight: root.font == 1 ? 600 : 400;
+        color: root.chosen ? Tokens.accent : Tokens.text;
+        vertical-alignment: center;
+    }
+    Text {
+        x: parent.width - self.width - 10px;
+        text: ["Segoe UI", "Titles", "Georgia", "Cascadia", "Print"][root.font];
+        font-size: 12px;
+        color: Tokens.text-faint;
+        vertical-alignment: center;
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// The whiteboard's menus, over the window.
+export component BoardMenu inherits Rectangle {
+    callback chosen(string);
+    callback dismissed();
+
+    property <bool> couleurs: Board.menu == "fill" || Board.menu == "stroke" || Board.menu == "colour";
+    // The colour the menu is about, in the palette (−1 none, −2 custom).
+    property <int> actuelle: Board.menu == "fill" ? Board.fill : Board.menu == "stroke" ? Board.stroke : Board.text-colour;
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+    MenuSurface {
+        dismissed => { root.dismissed(); }
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: Board.menu-x;
+        menu-y: Board.menu-y;
+        menu-width: root.couleurs ? 246px : Board.menu == "tool-shape" || Board.menu == "shape" ? 186px : Board.menu == "font" ? 236px : 220px;
+        menu-height: entries.preferred-height + 8px;
+        entries := VerticalLayout {
+            padding: 4px;
+            if root.couleurs: VerticalLayout {
+                padding: 8px;
+                spacing: 10px;
+                // Fill, border and text, for what has them.
+                if Board.sel-kind == 0 || Board.sel-kind == 3 || Board.sel-kind == 6: Segmented {
+                    options: Board.sel-kind == 3 ? ["Fill", "Border"] : ["Fill", "Border", "Text"];
+                    selected: Board.menu == "fill" ? 0 : Board.menu == "stroke" ? 1 : 2;
+                    chosen(i) => { Board.menu = i == 0 ? "fill" : i == 1 ? "stroke" : "colour"; }
+                }
+                if !(Board.sel-kind == 0 || Board.sel-kind == 3 || Board.sel-kind == 6): Text {
+                    text: Board.menu == "fill" ? "Fill colour" : Board.menu == "stroke" ? "Line colour" : "Text colour";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                }
+                // The soft fills with the paper, the ink and none; then the strong ones.
+                HorizontalLayout {
+                    spacing: 7px;
+                    alignment: start;
+                    for i in 6: PaletteSwatch {
+                        colour: Board.palette[i];
+                        label: "Soft " + Board.colour-names[i];
+                        chosen: root.actuelle == i;
+                        clicked => { root.chosen(Board.menu + ":" + i); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 7px;
+                    alignment: start;
+                    for i in 3: PaletteSwatch {
+                        colour: Board.palette[i + 6];
+                        label: "Soft " + Board.colour-names[i + 6];
+                        chosen: root.actuelle == i + 6;
+                        clicked => { root.chosen(Board.menu + ":" + (i + 6)); }
+                    }
+                    PaletteSwatch {
+                        colour: Board.palette[18];
+                        label: "Paper";
+                        chosen: root.actuelle == 18;
+                        clicked => { root.chosen(Board.menu + ":18"); }
+                    }
+                    PaletteSwatch {
+                        colour: Board.palette[19];
+                        label: "Ink";
+                        chosen: root.actuelle == 19;
+                        clicked => { root.chosen(Board.menu + ":19"); }
+                    }
+                    PaletteSwatch {
+                        none: true;
+                        label: "None";
+                        chosen: root.actuelle == -1;
+                        clicked => { root.chosen(Board.menu + ":none"); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 7px;
+                    alignment: start;
+                    for i in 6: PaletteSwatch {
+                        colour: Board.palette[i + 9];
+                        label: Board.colour-names[i + 9];
+                        chosen: root.actuelle == i + 9;
+                        clicked => { root.chosen(Board.menu + ":" + (i + 9)); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 7px;
+                    alignment: start;
+                    for i in 3: PaletteSwatch {
+                        colour: Board.palette[i + 15];
+                        label: Board.colour-names[i + 15];
+                        chosen: root.actuelle == i + 15;
+                        clicked => { root.chosen(Board.menu + ":" + (i + 15)); }
+                    }
+                    PaletteSwatch {
+                        colour: Board.palette[20];
+                        label: "Soft ink";
+                        chosen: root.actuelle == 20;
+                        clicked => { root.chosen(Board.menu + ":20"); }
+                    }
+                    PaletteSwatch {
+                        colour: Board.palette[21];
+                        label: "Line";
+                        chosen: root.actuelle == 21;
+                        clicked => { root.chosen(Board.menu + ":21"); }
+                    }
+                }
+                if Board.menu == "fill": HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Opacity";
+                        font-size: 12px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                    Segmented {
+                        options: ["25 %", "50 %", "75 %", "100 %"];
+                        selected: Board.opacity <= 30 ? 0 : Board.opacity <= 55 ? 1 : Board.opacity <= 80 ? 2 : 3;
+                        segment-padding: 10px;
+                        chosen(i) => { root.chosen("opacity:" + ((i + 1) * 25)); }
+                    }
+                }
+                // Any colour, as #rrggbb.
+                TextField {
+                    height: 30px;
+                    font-size: 13px;
+                    placeholder-text: "Any colour: #3a7bd5";
+                    accepted(t) => { root.chosen(Board.menu + ":" + t); }
+                }
+            }
+            if Board.menu == "font": VerticalLayout {
+                padding: 4px;
+                spacing: 2px;
+                for i in 5: FontChoice {
+                    font: i;
+                    chosen: Board.font == i;
+                    clicked => { root.chosen("font:" + i); }
+                }
+                MenuSeparator { }
+                Text {
+                    x: 6px;
+                    text: "Size";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                }
+                HorizontalLayout {
+                    spacing: 2px;
+                    for s in [12, 14, 18, 24, 32, 48, 64]: Rectangle {
+                        height: 28px;
+                        horizontal-stretch: 1;
+                        accessible-role: button;
+                        accessible-label: "Size \{s}";
+                        Rectangle {
+                            border-radius: Tokens.radius-small;
+                            background: Board.font-size == s ? Tokens.accent-soft : taille.has-hover ? Tokens.surface-hover : transparent;
+                        }
+                        Text {
+                            text: s;
+                            font-size: 12px;
+                            color: Board.font-size == s ? Tokens.accent : Tokens.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        taille := TouchArea {
+                            clicked => { root.chosen("size:" + s); }
+                        }
+                    }
+                }
+            }
+            if Board.menu == "width": VerticalLayout {
+                for w in [1, 1.5, 2, 3, 4, 6, 8]: MenuEntry {
+                    label: "\{w} px";
+                    icon: Board.stroke-width == w ? Icons.check : "";
+                    activated => { root.chosen("width:" + w); }
+                }
+            }
+            if Board.menu == "tool-shape" || Board.menu == "shape": VerticalLayout {
+                padding: 6px;
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    for i in 4: ShapeChoice {
+                        shape: i;
+                        chosen: (Board.menu == "shape" ? Board.shape : Board.shape-tool) == i;
+                        clicked => { root.chosen((Board.menu == "shape" ? "shape:" : "shape-tool:") + i); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    for i in 4: ShapeChoice {
+                        shape: i + 4;
+                        chosen: (Board.menu == "shape" ? Board.shape : Board.shape-tool) == i + 4;
+                        clicked => { root.chosen((Board.menu == "shape" ? "shape:" : "shape-tool:") + (i + 4)); }
+                    }
+                }
+                if Board.menu == "tool-shape": Text {
+                    text: "Drag on the board to draw it, or click for its usual size.";
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+            if Board.menu == "start" || Board.menu == "end": VerticalLayout {
+                for i in 4: MenuEntry {
+                    icon: [Icons.head-none, Icons.head-arrow, Icons.head-dot, Icons.head-diamond][i];
+                    label: ["None", "Arrow", "Dot", "Diamond"][i];
+                    activated => { root.chosen(Board.menu + ":" + i); }
+                }
+            }
+            if Board.menu == "more": VerticalLayout {
+                MenuEntry {
+                    icon: Icons.pencil;
+                    label: "Edit the text";
+                    shortcut: "Enter";
+                    enabled: Board.sel-kind >= 0 && Board.sel-kind <= 4;
+                    activated => { root.chosen("edit"); }
+                }
+                MenuEntry {
+                    icon: Icons.copy;
+                    label: "Duplicate";
+                    shortcut: "Ctrl+D";
+                    activated => { root.chosen("duplicate"); }
+                }
+                MenuEntry {
+                    icon: Icons.copy;
+                    label: "Copy";
+                    shortcut: "Ctrl+C";
+                    activated => { root.chosen("copy"); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    icon: Icons.layers;
+                    label: "Bring to front";
+                    shortcut: "Ctrl+]";
+                    activated => { root.chosen("front"); }
+                }
+                MenuEntry {
+                    icon: Icons.layers;
+                    label: "Send to back";
+                    shortcut: "Ctrl+[";
+                    activated => { root.chosen("back"); }
+                }
+                MenuEntry {
+                    icon: Icons.lock;
+                    label: Board.locked ? "Unlock" : "Lock in place";
+                    shortcut: "Ctrl+L";
+                    activated => { root.chosen("lock"); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    icon: Icons.trash;
+                    label: "Delete";
+                    shortcut: "Del";
+                    danger: true;
+                    activated => { root.chosen("delete"); }
+                }
+            }
+            if Board.menu == "canvas": VerticalLayout {
+                MenuEntry {
+                    icon: Icons.copy;
+                    label: "Paste";
+                    shortcut: "Ctrl+V";
+                    activated => { root.chosen("paste"); }
+                }
+                MenuEntry {
+                    icon: Icons.cursor;
+                    label: "Select everything";
+                    shortcut: "Ctrl+A";
+                    activated => { root.chosen("select-all"); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    icon: Icons.sticky;
+                    label: "Add a sticky note here";
+                    activated => { root.chosen("add-sticky"); }
+                }
+                MenuEntry {
+                    icon: Icons.text-tool;
+                    label: "Add a text here";
+                    activated => { root.chosen("add-text"); }
+                }
+            }
+        }
+    }
+}

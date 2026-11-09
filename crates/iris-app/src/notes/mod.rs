@@ -10,6 +10,7 @@
 mod apercu;
 pub(crate) mod bin;
 mod blocs;
+mod board;
 mod cellules;
 mod editeur;
 mod export;
@@ -101,6 +102,8 @@ struct Etat {
     beside: Option<String>,
     /// The spreadsheet open, in place of a note.
     sheet: Option<sheet::Feuille>,
+    /// The whiteboard open, in place of a note.
+    board: Option<board::Tableau>,
     /// For the tasks a checkbox is linked to.
     services: Services,
     /// The history shown: the note, and when each of its versions was kept.
@@ -254,6 +257,7 @@ fn genre_de(kind: EntryKind) -> i32 {
         EntryKind::Sheet => 2,
         EntryKind::Image => 3,
         EntryKind::Other => 4,
+        EntryKind::Board => 5,
     }
 }
 
@@ -345,7 +349,7 @@ fn montrer_arbre(f: &AppWindow, e: &mut Etat) {
             Some(NoteTreeRowData {
                 key: rel.as_str().into(),
                 name: match kind {
-                    EntryKind::Note | EntryKind::Sheet => stem(rel),
+                    EntryKind::Note | EntryKind::Sheet | EntryKind::Board => stem(rel),
                     _ => fichier,
                 }
                 .into(),
@@ -560,6 +564,7 @@ fn montrer_entete(f: &AppWindow, note: &Ouverte) {
 /// Writes the open note if it changed.
 fn ecrire(f: &AppWindow, e: &mut Etat) {
     sheet::ecrire(f, e);
+    board::ecrire(f, e);
     let Some(espace) = e.spaces.get(e.space).cloned() else {
         return;
     };
@@ -638,8 +643,15 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
         ouvrir_tableur(f, e, rel);
         return;
     }
+    if EntryKind::of(rel) == EntryKind::Board {
+        ouvrir_tableau_blanc(f, e, rel);
+        return;
+    }
     if e.sheet.is_some() {
         sheet::fermer(f, e);
+    }
+    if e.board.is_some() {
+        board::fermer(f, e);
     }
     let Some(espace) = e.espace() else { return };
     match espace.read(rel) {
@@ -717,6 +729,9 @@ fn fermer_tout(f: &AppWindow, e: &mut Etat) {
     if e.sheet.is_some() {
         sheet::fermer(f, e);
     }
+    if e.board.is_some() {
+        board::fermer(f, e);
+    }
     e.note = None;
     e.beside = None;
     montrer_a_cote(f, e);
@@ -728,6 +743,9 @@ fn ouvrir_tableur(f: &AppWindow, e: &mut Etat, rel: &str) {
     if e.sheet.is_some() {
         sheet::fermer(f, e);
     }
+    if e.board.is_some() {
+        board::fermer(f, e);
+    }
     e.note = None;
     sans_focus(f, e);
     fermer_popups(f, e);
@@ -736,6 +754,33 @@ fn ouvrir_tableur(f: &AppWindow, e: &mut Etat, rel: &str) {
     if e.sheet.is_none() {
         return;
     }
+    ouvert_a_la_place(f, e, rel);
+}
+
+/// Opens a whiteboard of the space in place of the note.
+fn ouvrir_tableau_blanc(f: &AppWindow, e: &mut Etat, rel: &str) {
+    cellules::quitter(f, e);
+    ecrire(f, e);
+    if e.sheet.is_some() {
+        sheet::fermer(f, e);
+    }
+    if e.board.is_some() {
+        board::fermer(f, e);
+    }
+    e.note = None;
+    sans_focus(f, e);
+    fermer_popups(f, e);
+    montrer_note(f, e);
+    board::ouvrir(f, e, rel);
+    if e.board.is_none() {
+        return;
+    }
+    ouvert_a_la_place(f, e, rel);
+}
+
+/// A spreadsheet or a whiteboard opened in place of the note: chosen in the tree, its
+/// path above it, remembered, and in its tab.
+fn ouvert_a_la_place(f: &AppWindow, e: &mut Etat, rel: &str) {
     e.selected = Some(rel.to_string());
     let mut p = parent_of(rel);
     while !p.is_empty() {
@@ -2642,7 +2687,7 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
             })
         };
         if let Some((rel, chemin)) = fichier {
-            if EntryKind::of(&rel) == EntryKind::Sheet {
+            if matches!(EntryKind::of(&rel), EntryKind::Sheet | EntryKind::Board) {
                 ouvrir(f, e, &rel);
                 montrer_arbre(f, e);
             } else if let Err(err) = crate::platform::open_path(&chemin) {
@@ -3003,6 +3048,9 @@ fn suivre_deplacement(e: &mut Etat, avant: &str, apres: &str) {
     if let Some(s) = &mut e.sheet {
         suivre(&mut s.rel);
     }
+    if let Some(b) = &mut e.board {
+        suivre(&mut b.rel);
+    }
     for o in &mut e.onglets {
         suivre(o);
     }
@@ -3261,6 +3309,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         revision: None,
         beside: None,
         sheet: None,
+        board: None,
         services: services.clone(),
         historique: None,
         deplacement: None,
@@ -3273,6 +3322,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         ed: saisie::Editeur::nouveau(),
     }));
     sheet::wire(f, &etat);
+    board::wire(f, &etat);
     cellules::wire(f, &etat);
     saisie::wire(f, &etat);
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
@@ -3468,7 +3518,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                     e.expanded.insert(k);
                 }
             }
-            Some(EntryKind::Note | EntryKind::Sheet) => ouvrir(&f, e, &k),
+            Some(EntryKind::Note | EntryKind::Sheet | EntryKind::Board) => ouvrir(&f, e, &k),
             Some(EntryKind::Image | EntryKind::Other) => {
                 if let Some(Ok(p)) = e.espace().map(|s| s.path(&k)) {
                     if let Err(err) = crate::platform::open_path(&p) {
@@ -3513,6 +3563,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                     EntryKind::Sheet => 2,
                     EntryKind::Image => 3,
                     EntryKind::Other => 4,
+                    EntryKind::Board => 5,
                 });
                 let epingle = e.espace().is_some_and(|s| s.config.pinned.contains(&cle));
                 f.set_notes_row_menu_pinned(epingle);
@@ -3547,6 +3598,21 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                     parent_of(&cle)
                 };
                 if let Some(rel) = sheet::nouvelle(&f, e, &dossier) {
+                    if !dossier.is_empty() {
+                        e.expanded.insert(dossier);
+                    }
+                    ouvrir(&f, e, &rel);
+                    montrer_arbre(&f, e);
+                    f.set_notes_renaming(rel.as_str().into());
+                }
+            }
+            "new-board" => {
+                let dossier = if genre == EntryKind::Folder {
+                    cle.clone()
+                } else {
+                    parent_of(&cle)
+                };
+                if let Some(rel) = board::nouveau(&f, e, &dossier) {
                     if !dossier.is_empty() {
                         e.expanded.insert(dossier);
                     }
@@ -3676,6 +3742,10 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 if e.sheet.as_ref().is_some_and(|s| dedans(&s.rel)) {
                     e.sheet = None;
                     f.set_note_sheet_open(false);
+                }
+                if e.board.as_ref().is_some_and(|b| dedans(&b.rel)) {
+                    e.board = None;
+                    f.set_note_board_open(false);
                 }
                 if e.beside.as_deref().is_some_and(dedans) {
                     e.beside = None;
@@ -3830,6 +3900,17 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
             copier_lien(&f, &format!("task:{id}"), &f.get_task_detail_title());
         });
     }
+    geste!(on_notes_new_board, |f, e| {
+        let dossier = e.dossier_courant();
+        if let Some(rel) = board::nouveau(&f, e, &dossier) {
+            if !dossier.is_empty() {
+                e.expanded.insert(dossier);
+            }
+            ouvrir(&f, e, &rel);
+            montrer_arbre(&f, e);
+            f.set_notes_renaming(rel.as_str().into());
+        }
+    });
     geste!(on_notes_new_sheet, |f, e| {
         let dossier = e.dossier_courant();
         if let Some(rel) = sheet::nouvelle(&f, e, &dossier) {

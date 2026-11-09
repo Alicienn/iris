@@ -52,6 +52,8 @@ pub enum EntryKind {
     Folder,
     Note,
     Sheet,
+    /// A whiteboard (`.board`).
+    Board,
     Image,
     Other,
 }
@@ -65,6 +67,7 @@ impl EntryKind {
         match ext.as_str() {
             "md" | "markdown" | "txt" => EntryKind::Note,
             "sheet" => EntryKind::Sheet,
+            "board" => EntryKind::Board,
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" => EntryKind::Image,
             _ => EntryKind::Other,
         }
@@ -399,7 +402,7 @@ impl Space {
                 EntryKind::of(&nom)
             };
             let affiche = match kind {
-                EntryKind::Note | EntryKind::Sheet => nom
+                EntryKind::Note | EntryKind::Sheet | EntryKind::Board => nom
                     .rsplit_once('.')
                     .map_or(nom.clone(), |(n, _)| n.to_string()),
                 _ => nom.clone(),

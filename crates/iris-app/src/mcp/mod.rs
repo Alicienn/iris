@@ -303,7 +303,8 @@ Cleared tasks and archived goals are left out unless include_archived; tasks_rec
 tells what was done over a period.\n\
 - Notes: notes_spaces, then notes_tree, notes_read, notes_write, notes_edit. Read \
 notes_syntax before writing a note: Iris has its own marks, callouts, embeds and \
-charts. Spreadsheets: sheets_read, sheets_write, sheets_add_chart.\n\
+charts. Spreadsheets: sheets_read, sheets_write, sheets_add_chart. Whiteboards: \
+boards_read, boards_add, boards_update.\n\
 \n\
 Times are the user's local time, written 2026-11-06T14:30; days are 2026-11-06. \
 Ask the user before sending mail or deleting anything they did not ask you to.";
@@ -331,7 +332,10 @@ impl Handler for IrisTools {
             || name.starts_with("goals_")
         {
             tasks::call(ctx, name, args)
-        } else if name.starts_with("notes_") || name.starts_with("sheets_") {
+        } else if name.starts_with("notes_")
+            || name.starts_with("sheets_")
+            || name.starts_with("boards_")
+        {
             notes::call(ctx, name, args)
         } else {
             Err(ToolError::new(format!("unknown tool: {name}")))

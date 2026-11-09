@@ -186,7 +186,7 @@ contract of the one before it.
   Domain         iris-workflow · iris-thread · iris-rules    pure, no I/O
                  iris-search · iris-mime
                  iris-calendar · iris-tasks · iris-growth
-                 iris-notes · iris-sheets · iris-math
+                 iris-notes · iris-sheets · iris-math · iris-board
   Data           iris-store (SQLite) · iris-index (Tantivy)  local truth
                  iris-blobs (zstd + LRU)
                  iris-vault (the notes' folders)
@@ -307,6 +307,10 @@ Stated here so they are decided rather than discovered:
   thousand notes would want an index built on a worker, as the spec planned.
 - **Notes look for changes by polling** (`Space::fingerprint` every two seconds while
   Notes shows) rather than with file-system notifications.
+- **A whiteboard is drawn whole and changed on the display thread**: every item is in
+  the canvas's model whatever the view, and a drag rebuilds the items' data (only the
+  rows that changed reach Slint). Boards of a few hundred items are what it is made
+  for; thousands would want the view culled as the charts' canvas does.
 - **Reading mode draws the blocks** with `StyledText`, not the whole note through
   Blitz as the spec planned: highlight is coloured text, and inline maths is Unicode.
   Pages for keeping and printing are real HTML, opened in the browser.
@@ -1112,6 +1116,7 @@ nothing is lost if Iris is. Four crates hold them, and the application wires the
 | `iris-math` | pure | LaTeX drawn as RGBA (`latex-rust`, STIX Two Math carried in the crate), with a cache of 256 formulas |
 | `iris-vault` | files | spaces, the tree, atomic writes, conflicts, moves rewriting links, the Recycle Bin behind a trait, search, past versions, flashcard state |
 | `iris-sheets` | pure (bytes in, bytes out) | cells, formulas, recalculation, formats, the `.sheet` file, CSV, Excel, charts read and laid out |
+| `iris-board` | pure | whiteboards: items, colours, arrows' ends and ways, hit tests, the `.board` file |
 
 **The text is the truth.** `iris_notes::block::parse` cuts a note into blocks without
 losing a byte (`join` gives the file back exactly, a test over every block kind holds
@@ -1242,6 +1247,33 @@ half their width), and no path is rasterised larger than the canvas. A card move
 hand keeps its place in the file (`"at": [x, y]`, 100 % pixels, absent until moved);
 cards never moved stand in two columns under the moved ones. The settings column is
 300 px and folds (`sheet_chart_panel_folded`, this device's).
+
+**Whiteboards** (7.15.0). A `.board` file (`EntryKind::Board`) is JSON written by
+`iris-board`, a pure crate: `format`, `next` (the next id) and `items` in drawing order.
+An item is a shape (eight outlines), a sticky note, a text, a frame, a connector or an
+ink stroke; its colours are names of a 22-colour palette (`COLOURS`: nine soft fills,
+nine strong inks, paper, ink, soft ink, line) or `#rrggbb`, so the board follows the
+theme. A connector's ends are `{item, x, y}` (fractions of the item's box) or a free
+point; `route` finds its way each time it is drawn — out of the side an end sits on,
+straight, at right angles (`auto_elbow` when the user placed no corner; `orthogonal`
+keeps the user's corners and adds one wherever two are not in line) or a Catmull-Rom
+curve square to its items — rounds corners with quadratic pieces, pulls the line back
+under its heads and gives the box around it all. Nothing is stored that the items say
+already: moving a shape moves its arrows. The board has no size: `bounds` is the box
+around its items. `notes/board.rs` holds the board and its undo (whole snapshots, one
+per gesture, dropped when the gesture changed nothing) and turns presses, drags, keys
+and the toolbar's choices into changes; `screens/board.slint` only draws, from the
+`Board` global: each item as a `Rectangle` or a `Path` whose view box is its own box,
+the outline or line given as path commands in that box (so zoom scales the geometry,
+as on the charts' canvas), a grid of lines (every 20, 100… units, whichever stays 12 px
+apart), the handles, the toolbar placed over the selection, a minimap. The view (zoom
+1–800 %, offset) lives in the window, which tells Rust with `viewport` so that hit
+tolerances and the "+" handles (18 px out of their side) are measured on screen. Words
+are typed in a `TextInput` placed over the item in its font; sticky notes and texts
+grow with them. Copy and Paste keep items in the process (`PRESSE`), not on the system
+clipboard. The assistant reads and draws through `boards_read`, `boards_add` (arrows
+named by id or by a `ref` of the same call, tied to the sides that face each other) and
+`boards_update`.
 
 **Blocks and cells selected** (4.20.0, drawn by the editor since 4.21.0). A selection
 running over several blocks makes Alt and an arrow, Tab and Ctrl+D act on those blocks
@@ -2060,7 +2092,9 @@ per line. The tools are answered by the Iris that is running, not by that proces
   period: tasks completed by day and list (archived ones included), goals reached,
   archived and logged, milestones ticked, each habit's days and streaks; nothing in
   the app shows it. `goals_archive` archives or restores a goal; `goals_list` and
-  `tasks_list` leave the archived out unless `include_archived`.
+  `tasks_list` leave the archived out unless `include_archived`. `boards_read`,
+  `boards_add` and `boards_update` (destructive: it deletes) work on whiteboards
+  (7.15.0).
 - Not on Android (`#[cfg(not(target_os = "android"))]`): the module, the bridge and the
   settings' rows (`mcp-available`).
 

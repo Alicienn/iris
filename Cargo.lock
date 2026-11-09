@@ -3408,7 +3408,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "iris-android"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "android_logger",
  "getrandom 0.3.4",
@@ -3425,7 +3425,7 @@ dependencies = [
 
 [[package]]
 name = "iris-app"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "arboard",
  "async-trait",
@@ -3436,6 +3436,7 @@ dependencies = [
  "iana-time-zone",
  "image",
  "iris-blobs",
+ "iris-board",
  "iris-caldav",
  "iris-calendar",
  "iris-discover",
@@ -3487,7 +3488,7 @@ dependencies = [
 
 [[package]]
 name = "iris-blobs"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "blake3",
  "iris-types",
@@ -3497,8 +3498,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-board"
+version = "7.15.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iris-caldav"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
  "reqwest",
@@ -3509,7 +3518,7 @@ dependencies = [
 
 [[package]]
 name = "iris-calendar"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3520,7 +3529,7 @@ dependencies = [
 
 [[package]]
 name = "iris-discover"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "async-trait",
  "hickory-resolver",
@@ -3533,14 +3542,14 @@ dependencies = [
 
 [[package]]
 name = "iris-growth"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "chrono",
 ]
 
 [[package]]
 name = "iris-htmlview"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -3556,7 +3565,7 @@ dependencies = [
 
 [[package]]
 name = "iris-imap"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "async-imap",
  "async-trait",
@@ -3573,7 +3582,7 @@ dependencies = [
 
 [[package]]
 name = "iris-index"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
  "tantivy",
@@ -3583,7 +3592,7 @@ dependencies = [
 
 [[package]]
 name = "iris-kernel"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
  "tokio",
@@ -3591,7 +3600,7 @@ dependencies = [
 
 [[package]]
 name = "iris-math"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "image",
  "latex-rust",
@@ -3599,14 +3608,14 @@ dependencies = [
 
 [[package]]
 name = "iris-mcp"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "iris-mime"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "ammonia",
  "iris-types",
@@ -3616,7 +3625,7 @@ dependencies = [
 
 [[package]]
 name = "iris-notes"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "chrono",
  "serde",
@@ -3624,7 +3633,7 @@ dependencies = [
 
 [[package]]
 name = "iris-oauth"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "async-trait",
  "iris-types",
@@ -3637,7 +3646,7 @@ dependencies = [
 
 [[package]]
 name = "iris-peer"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "blake3",
  "chacha20poly1305",
@@ -3653,7 +3662,7 @@ dependencies = [
 
 [[package]]
 name = "iris-rules"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
  "serde",
@@ -3662,7 +3671,7 @@ dependencies = [
 
 [[package]]
 name = "iris-search"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
  "serde",
@@ -3671,7 +3680,7 @@ dependencies = [
 
 [[package]]
 name = "iris-secrets"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -3685,7 +3694,7 @@ dependencies = [
 
 [[package]]
 name = "iris-sheets"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "calamine",
  "chrono",
@@ -3696,7 +3705,7 @@ dependencies = [
 
 [[package]]
 name = "iris-smtp"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3707,7 +3716,7 @@ dependencies = [
 
 [[package]]
 name = "iris-store"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
  "rusqlite",
@@ -3719,7 +3728,7 @@ dependencies = [
 
 [[package]]
 name = "iris-sync"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -3743,14 +3752,14 @@ dependencies = [
 
 [[package]]
 name = "iris-tasks"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "chrono",
 ]
 
 [[package]]
 name = "iris-theme"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
  "serde",
@@ -3760,14 +3769,14 @@ dependencies = [
 
 [[package]]
 name = "iris-thread"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-types",
 ]
 
 [[package]]
 name = "iris-types"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -3775,7 +3784,7 @@ dependencies = [
 
 [[package]]
 name = "iris-ui"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "chrono",
  "i-slint-backend-testing",
@@ -3792,7 +3801,7 @@ dependencies = [
 
 [[package]]
 name = "iris-ui-views"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "slint",
  "slint-build",
@@ -3800,7 +3809,7 @@ dependencies = [
 
 [[package]]
 name = "iris-vault"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "chrono",
  "iris-notes",
@@ -3812,7 +3821,7 @@ dependencies = [
 
 [[package]]
 name = "iris-viewmodel"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-index",
  "iris-kernel",
@@ -3827,7 +3836,7 @@ dependencies = [
 
 [[package]]
 name = "iris-workflow"
-version = "7.14.0"
+version = "7.15.0"
 dependencies = [
  "iris-kernel",
  "iris-store",

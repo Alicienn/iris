@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.15.0 — 2026-11-09
+
+### New
+- Whiteboards in Notes: an endless board you can zoom far out, that grows with what you put on it.
+- Shapes, sticky notes, texts, frames and pen strokes, each with its own fill, border, font and size.
+- Arrows that tie to shapes and follow them, straight, at right angles or curved, with corners you can drag.
+- Click a shape's + to add the next step of a diagram, already linked.
+- An AI assistant can read and draw on your whiteboards.
+
 ## 7.14.0 — 2026-11-07
 
 ### New
