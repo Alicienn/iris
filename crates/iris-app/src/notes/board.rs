@@ -1889,7 +1889,7 @@ mod tests {
             assert!(ecart_points(z) >= 12, "{z}");
         }
         let t = tuile(20);
-        assert_eq!(t.size(), slint::PhysicalSize::new(20, 20));
+        assert_eq!((t.size().width, t.size().height), (20, 20));
     }
 
     #[test]
