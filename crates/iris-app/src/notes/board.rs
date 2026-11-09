@@ -183,8 +183,41 @@ pub(super) struct Tableau {
     /// The item whose words are being typed.
     edition: Option<u64>,
     curseur: i32,
+    /// How far apart the ground's dots are on screen (whole pixels): the tile shown.
+    grille: u32,
     items: Rc<VecModel<BoardItemData>>,
     poignees: Vec<BoardHandleData>,
+}
+
+/// The ground's dots are 20 units apart, 100, 500… whichever comes first that leaves at
+/// least 12 pixels between them; what that is on screen, rounded to a whole pixel.
+fn ecart_points(zoom: f32) -> u32 {
+    let mut pas = 20.0 * zoom.max(0.0001);
+    let mut tours = 0;
+    while pas < 12.0 && tours < 12 {
+        pas *= 5.0;
+        tours += 1;
+    }
+    (pas.round() as u32).clamp(12, 200)
+}
+
+/// A tile `s` pixels square with one dot in its middle: white, its edge smoothed, for
+/// the window to tint. Repeated, it makes the ground's dots.
+fn tuile(s: u32) -> slint::Image {
+    let mut buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(s, s);
+    let c = s as f32 / 2.0;
+    for (i, px) in buf.make_mut_slice().iter_mut().enumerate() {
+        let (x, y) = ((i as u32 % s) as f32 + 0.5, (i as u32 / s) as f32 + 0.5);
+        let d = ((x - c).powi(2) + (y - c).powi(2)).sqrt();
+        let a = (1.6 - d).clamp(0.0, 1.0);
+        *px = slint::Rgba8Pixel {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: (a * 255.0).round() as u8,
+        };
+    }
+    slint::Image::from_rgba8(buf)
 }
 
 // --- Colours and items as the canvas draws them ----------------------------------------
@@ -297,6 +330,7 @@ impl Tableau {
             dirty: false,
             edition: None,
             curseur: 0,
+            grille: 0,
             items: Rc::new(VecModel::default()),
             poignees: Vec::new(),
         }
@@ -1774,9 +1808,16 @@ pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
         }};
     }
     geste!(on_viewport, |f, t, px, py, zoom, w, h| {
-        let _ = &f;
         t.zoom = zoom.max(0.001);
         t.vue = Rect::new(-px / t.zoom, -py / t.zoom, w / t.zoom, h / t.zoom);
+        // The dots' tile made again only when their spacing on screen changes.
+        let s = ecart_points(t.zoom);
+        if s != t.grille {
+            t.grille = s;
+            let g = f.global::<Vue>();
+            g.set_grid_tile(tuile(s));
+            g.set_grid_size(s as i32);
+        }
     });
     geste!(on_pointer, |f, t, kind, button, x, y, shift, ctrl| {
         let p = Pt::new(x, y);
@@ -1836,6 +1877,20 @@ pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dots_stay_at_least_twelve_pixels_apart() {
+        assert_eq!(ecart_points(1.0), 20);
+        assert_eq!(ecart_points(0.85), 17);
+        // Closer than 12 pixels: every fifth dot.
+        assert_eq!(ecart_points(0.5), 50);
+        assert_eq!(ecart_points(0.01), 25);
+        for z in [0.013, 0.07, 0.3, 0.59, 2.0, 8.0] {
+            assert!(ecart_points(z) >= 12, "{z}");
+        }
+        let t = tuile(20);
+        assert_eq!(t.size(), slint::PhysicalSize::new(20, 20));
+    }
 
     #[test]
     fn colours_from_the_menu() {

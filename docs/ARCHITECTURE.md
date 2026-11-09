@@ -1265,8 +1265,12 @@ per gesture, dropped when the gesture changed nothing) and turns presses, drags,
 and the toolbar's choices into changes; `screens/board.slint` only draws, from the
 `Board` global: each item as a `Rectangle` or a `Path` whose view box is its own box,
 the outline or line given as path commands in that box (so zoom scales the geometry,
-as on the charts' canvas), a grid of lines (every 20, 100… units, whichever stays 12 px
-apart), the handles, the toolbar placed over the selection, a minimap. The view (zoom
+as on the charts' canvas), dots on the ground (every 20, 100… units, whichever stays
+12 px apart: Rust makes one tile with one dot, as wide as that spacing rounded to a
+whole pixel, again only when it changes; Slint repeats it with `horizontal-tiling` /
+`vertical-tiling`, which the software renderer draws one tile pixel to one logical
+pixel, tints it with `colorize` for the theme and offsets it by the same rounded width,
+so a drag never shifts the dots), the handles, the toolbar placed over the selection, a minimap. The view (zoom
 1–800 %, offset) lives in the window, which tells Rust with `viewport` so that hit
 tolerances and the "+" handles (18 px out of their side) are measured on screen. Words
 are typed in a `TextInput` placed over the item in its font; sticky notes and texts

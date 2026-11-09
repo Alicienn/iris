@@ -85,6 +85,10 @@ export global Board {
     in-out property <float> zoom: 1;
     in-out property <length> pan-x: 80px;
     in-out property <length> pan-y: 60px;
+    /// The ground's dots: one dot on a square tile as wide as the dots are apart on
+    /// screen (whole pixels), made by Rust as the zoom changes, repeated here.
+    in property <image> grid-tile;
+    in property <int> grid-size: 20;
     /// Raised by Rust: the view frames everything (a board opened).
     in property <int> fit-serial;
     /// Raised to give the keyboard back to the board.
@@ -624,26 +628,22 @@ export component BoardView inherits Rectangle {
         }
     }
 
-    // The grid: faint lines every 20 units, every 100 or 500 when they come too close.
-    property <length> pas-1: 20 * Board.zoom * 1px;
-    property <length> pas: root.pas-1 >= 12px ? root.pas-1
-        : root.pas-1 * 5 >= 12px ? root.pas-1 * 5
-        : root.pas-1 * 25 >= 12px ? root.pas-1 * 25
-        : root.pas-1 * 125 >= 12px ? root.pas-1 * 125 : root.pas-1 * 625;
+    // The ground's dots, every 20 units (100, 500… when they would come closer than
+    // 12 pixels): one tile repeated, tinted for the theme, set where the board's origin
+    // falls so the dots move with it. The tile's width is the spacing rounded to a whole
+    // pixel, and the offset is taken by that same width, so a drag never shifts them.
+    property <length> pas: max(1, Board.grid-size) * 1px;
     property <length> gx: Board.pan-x - floor(Board.pan-x / root.pas) * root.pas;
     property <length> gy: Board.pan-y - floor(Board.pan-y / root.pas) * root.pas;
-    property <color> ligne: Tokens.dark ? #ffffff0c : #0000000a;
-    for i in ceil(root.width / root.pas) + 1: Rectangle {
-        x: root.gx + i * root.pas;
-        width: 1px;
-        height: root.height;
-        background: root.ligne;
-    }
-    for j in ceil(root.height / root.pas) + 1: Rectangle {
-        y: root.gy + j * root.pas;
-        height: 1px;
-        width: root.width;
-        background: root.ligne;
+    Image {
+        x: root.gx - root.pas;
+        y: root.gy - root.pas;
+        width: root.width + 2 * root.pas;
+        height: root.height + 2 * root.pas;
+        source: Board.grid-tile;
+        horizontal-tiling: repeat;
+        vertical-tiling: repeat;
+        colorize: Tokens.dark ? #ffffff2e : #0000002a;
     }
 
     for it in Board.items: BoardItem {
