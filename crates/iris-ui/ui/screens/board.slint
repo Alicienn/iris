@@ -347,10 +347,10 @@ component ChoiceButton inherits Rectangle {
     in property <string> icon;
     in property <string> label;
     in property <bool> active;
-    in property <length> min-width: 0px;
+    in property <length> largeur-min: 0px;
     callback clicked();
     height: 32px;
-    width: max(root.min-width, rang.preferred-width);
+    width: max(root.largeur-min, rang.preferred-width);
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -490,7 +490,7 @@ export component BoardView inherits Rectangle {
     background: Board.ground;
     clip: true;
 
-    property <float> z: Board.zoom;
+    property <float> zoom-vu: Board.zoom;
     property <length> ox: Board.pan-x;
     property <length> oy: Board.pan-y;
     // The view moved by hand: a new size no longer frames everything again.
@@ -505,7 +505,7 @@ export component BoardView inherits Rectangle {
     function report() {
         Board.viewport(Board.pan-x / 1px, Board.pan-y / 1px, Board.zoom, root.width / 1px, root.height / 1px);
     }
-    changed z => { root.report(); }
+    changed zoom-vu => { root.report(); }
     changed ox => { root.report(); }
     changed oy => { root.report(); }
     changed width => {
@@ -1023,7 +1023,7 @@ export component BoardView inherits Rectangle {
                 y: 5px;
                 text: ["Sans", "Display", "Serif", "Mono", "Handwriting"][Board.font];
                 label: "Font";
-                min-width: 92px;
+                largeur-min: 92px;
                 active: Board.menu == "font";
                 clicked => { root.menu("font", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
             }
