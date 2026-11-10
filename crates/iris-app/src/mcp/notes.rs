@@ -365,7 +365,8 @@ pub(super) fn tools() -> Vec<Tool> {
              text; shape (rect, rounded, ellipse, diamond, triangle, parallelogram, hexagon, \
              star); fill, stroke, color (yellow, orange, red, pink, purple, blue, teal, green, \
              grey, each also -soft; paper, ink, ink-soft, line, none, or #rrggbb); font (sans, \
-             display, serif, mono, hand), size, bold, italic, align (left, center, right); an \
+             display, serif, mono, hand), size, bold, italic, align (left, center, right; on \
+             an arrow, where its words stand along it), valign (top, middle, bottom); an \
              optional ref naming it in this call. An arrow: from and to, each an item's id, a \
              ref, or {x, y}; it ties to the sides facing each other; way (straight, elbow, \
              curved), start and end heads (none, arrow, dot, diamond). A pen stroke: points \
@@ -1616,17 +1617,18 @@ fn board_fields(it: &mut Item, o: &Map<String, Value>) -> Result<(), ToolError> 
                 }
                 champs.insert(k.clone(), json!(c));
             }
-            "shape" | "font" | "way" | "start" | "end" | "align" => {
+            "shape" | "font" | "way" | "start" | "end" | "align" | "valign" => {
                 let s = val
                     .as_str()
                     .ok_or_else(|| ToolError::new(format!("\"{k}\" must be a word")))?
                     .trim()
                     .to_ascii_lowercase();
-                let s = match s.as_str() {
-                    "handwriting" => "hand".to_string(),
-                    "centre" | "middle" => "center".to_string(),
-                    "square" => "rect".to_string(),
-                    "circle" | "oval" => "ellipse".to_string(),
+                let s = match (k.as_str(), s.as_str()) {
+                    (_, "handwriting") => "hand".to_string(),
+                    ("align", "centre" | "middle") => "center".to_string(),
+                    ("valign", "center" | "centre") => "middle".to_string(),
+                    (_, "square") => "rect".to_string(),
+                    (_, "circle" | "oval") => "ellipse".to_string(),
                     _ => s,
                 };
                 champs.insert(k.clone(), json!(s));

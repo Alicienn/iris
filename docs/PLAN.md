@@ -1029,3 +1029,16 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       way, heads), handles to resize, "+" to grow a diagram, corners and pieces dragged,
       text typed in place, a minimap, undo, copy and paste (7.15.0).
 - [x] **S55.4** The assistant's `boards_read`, `boards_add` and `boards_update` (7.15.0).
+
+## E56 — Whiteboards, refined (7.16.0)
+
+- [x] **S56.1** The view moved by the middle button or the hand follows the pointer
+      without jumps (7.16.0).
+- [x] **S56.2** Alignment guides: edges and middles snap to the boxes around while
+      moving, resizing and drawing; `Ctrl` places freely (7.16.0).
+- [x] **S56.3** Arrows: drawn straight between nearly aligned sides, spread when they
+      share a side's middle, tied to other arrows, a bend added by double-click, a label
+      button, the label placed at the start, middle or end (7.16.0).
+- [x] **S56.4** Text placed across and down in boxes; several chosen outlined one by
+      one, what a chosen frame carries outlined faintly, a count in the toolbar (7.16.0).
+- [x] **S56.5** A whiteboard exported as a PNG from its menu in the tree (7.16.0).

@@ -3621,6 +3621,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                     f.set_notes_renaming(rel.as_str().into());
                 }
             }
+            "export-png" => board::exporter_png(&f, e, &cle),
             "import-sheet" => {
                 if let Some(rel) = sheet::importer(&f, e, &cle) {
                     ouvrir(&f, e, &rel);

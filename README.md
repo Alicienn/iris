@@ -249,21 +249,35 @@ them; an Obsidian vault opens as it is.
   draw **sticky notes**, **shapes** (square, rounded, ellipse, diamond, triangle,
   parallelogram, hexagon, star), **texts**, **frames** (moving one moves what it
   holds), **arrows** and **pen** strokes; drag to give a size, click for the usual one.
-  - **Arrows** tie to a shape's side or anywhere on its outline and follow it; `Ctrl`
-    while dropping an end leaves it free. Straight, at right angles (corners square or
-    round) or curved: drag a corner to move it, a piece's middle to bend it (a new
-    point), double-click a point to take it away. Each end has its head (none, arrow,
+  - **Arrows** tie to a shape's side or anywhere on its outline and follow it, or to
+    another arrow (its middle and its bends are offered as you come near it); `Ctrl`
+    while dropping an end leaves it free, and a free end nearly level with the other one
+    is put in line. Straight, at right angles (corners square or round) or curved: drag
+    a corner to move it, a piece's middle to bend it, **double-click** the line to add a
+    bend there, double-click a bend to take it away. Each end has its head (none, arrow,
     dot, diamond).
+  - Two shapes a little out of line get a perfectly straight arrow between the middles
+    of the sides that face each other; arrows that meet at the same side spread along it
+    rather than overlap, and close up again when one goes.
   - A chosen shape shows a **+** on each side: drag it to draw an arrow from there, or
     click it for a copy beyond that side, already linked — the next step of a diagram.
+  - **Alignment**: what you move, resize or draw snaps its edges and its middle to those
+    of the shapes around, and a pink guide shows the line they share; `Ctrl` places
+    freely.
   - The **toolbar** over what is chosen sets its fill (nine soft colours, nine strong,
     any `#rrggbb`, an opacity), its border and its width, the font (sans, display,
-    serif, mono, handwriting), size, bold, italic, the text's colour and alignment.
-  - Double-click an item, or press `Enter`, to type in it; double-click the empty board
+    serif, mono, handwriting), size, bold, italic, the text's colour, and where the text
+    stands: left, centre or right and top, middle or bottom in a box, at the start,
+    middle or end of an arrow (whose toolbar also has a button to write on it).
+  - With several items chosen, each is outlined and the toolbar says how many; a chosen
+    frame outlines faintly what it carries along.
+  - Double-click a box, or press `Enter`, to type in it; double-click the empty board
     for a text. Sticky notes and texts grow with their words.
   - Drag the empty board to choose what a box covers (`Shift` adds), the wheel or the
     hand tool (`H`, the middle button) to move around, `Ctrl` and the wheel to zoom;
     the minimap and the zoom at the bottom right.
+  - **Export as image (PNG)** in a whiteboard's menu in the notes list draws it at twice
+    its size on its light paper.
 - **Flashcards** (`Question :: Answer`), revised with spaced repetition.
 - **Tabs**, each back where you left it, a note **beside** another (`Ctrl`+`\`),
   reading mode (`Ctrl`+`R`), focus mode (`F11`), version history.
@@ -377,6 +391,8 @@ over a choice made before it arrived.
   most 12 shares or 10 steps per column (the rest as "Other"), and is not exported to
   Excel. Whiteboards hold no pictures yet, have no dashed lines, cannot be shown in a
   note and are not zoomed with two fingers on a phone; copy and paste stay within Iris.
+  An exported picture lays out its words by estimate: a line may break a word earlier
+  or later than the board does. An arrow tied to an arrow takes no arrow tied to it.
 - Office hours are set in UTC. Filer reads an attachment's name only once the message's
   body has been fetched. Iris has no plugins since 7.0.
 - The command line only starts, checks (`iris doctor`), registers Iris

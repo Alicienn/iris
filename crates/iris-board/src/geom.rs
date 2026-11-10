@@ -218,6 +218,49 @@ impl Curve {
         polyline_distance(&self.flatten(), p)
     }
 
+    /// The point `t` of the way along (0 the start, 1 the end), by length.
+    pub fn at(&self, t: f32) -> Pt {
+        let pts = self.flatten();
+        let total: f32 = pts.windows(2).map(|w| w[0].distance(w[1])).sum();
+        let mut reste = total * t.clamp(0.0, 1.0);
+        for w in pts.windows(2) {
+            let l = w[0].distance(w[1]);
+            if l >= reste && l > 0.0 {
+                return w[0].lerp(w[1], reste / l);
+            }
+            reste -= l;
+        }
+        pts.last().copied().unwrap_or(self.start)
+    }
+
+    /// The point of the curve nearest `p`: how far along it is (0 to 1, by length), and
+    /// how far from `p`.
+    pub fn nearest(&self, p: Pt) -> (f32, f32) {
+        let pts = self.flatten();
+        let total: f32 = pts.windows(2).map(|w| w[0].distance(w[1])).sum();
+        let (mut meilleur, mut ou, mut fait) = (f32::INFINITY, 0.0, 0.0);
+        for w in pts.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let l = a.distance(b);
+            let ab = b - a;
+            let s = if l > 1e-6 {
+                (((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / (l * l)).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let d = a.lerp(b, s).distance(p);
+            if d < meilleur {
+                meilleur = d;
+                ou = fait + s * l;
+            }
+            fait += l;
+        }
+        if pts.len() == 1 {
+            meilleur = pts[0].distance(p);
+        }
+        (if total > 0.0 { ou / total } else { 0.0 }, meilleur)
+    }
+
     /// Where the curve is halfway along.
     pub fn midpoint(&self) -> Pt {
         let pts = self.flatten();

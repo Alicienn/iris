@@ -9,10 +9,11 @@
 
 use super::{stem, Etat};
 use iris_board::geom::{self, Pt, Rect};
-use iris_board::{route, Align, Board, Colour, End, Font, Head, Item, Kind, Shape, Way};
+use iris_board::snap::{self, Lines};
+use iris_board::{route, Align, Board, Colour, End, Font, Head, Item, Kind, Shape, VAlign, Way};
 use iris_board::{COLOURS, SIDES};
 use iris_ui::Board as Vue;
-use iris_ui::{AppWindow, BoardHandleData, BoardItemData};
+use iris_ui::{AppWindow, BoardGuideData, BoardHandleData, BoardItemData};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::ops::Add;
@@ -110,10 +111,13 @@ const POIGNEES: [(f32, f32); 8] = [
 /// A drag under way.
 #[derive(Debug, Clone)]
 enum Geste {
-    /// Items carried; `dernier` where the pointer was last.
+    /// Items carried: from where the press was, by how much so far, and the box around
+    /// them when the press came (what is aligned to the others).
     Deplacer {
         ids: Vec<u64>,
-        dernier: Pt,
+        depart: Pt,
+        fait: Pt,
+        boite: Rect,
     },
     Redim {
         id: u64,
@@ -187,6 +191,8 @@ pub(super) struct Tableau {
     grille: u32,
     items: Rc<VecModel<BoardItemData>>,
     poignees: Vec<BoardHandleData>,
+    /// The alignment guides shown while something moves.
+    guides: Vec<snap::Guide>,
 }
 
 /// The ground's dots are 20 units apart, 100, 500… whichever comes first that leaves at
@@ -244,7 +250,7 @@ fn marge(kind: Kind) -> f32 {
     }
 }
 
-fn donnee(b: &Board, it: &Item, edition: bool) -> BoardItemData {
+fn donnee(b: &Board, it: &Item, edition: bool, marque: i32) -> BoardItemData {
     let (fill, fill_custom) = couleur(&it.fill);
     let (stroke, stroke_custom) = couleur(&it.stroke);
     let (text_colour, text_custom) = couleur(&it.color);
@@ -269,6 +275,8 @@ fn donnee(b: &Board, it: &Item, edition: bool) -> BoardItemData {
         bold: it.bold,
         italic: it.italic,
         align: it.align.index() as i32,
+        valign: it.valign.resolved(it.kind) as i32,
+        marked: marque,
         editing: edition,
         ..Default::default()
     };
@@ -333,6 +341,7 @@ impl Tableau {
             grille: 0,
             items: Rc::new(VecModel::default()),
             poignees: Vec::new(),
+            guides: Vec::new(),
         }
     }
 
@@ -374,8 +383,16 @@ impl Tableau {
         let tirage = matches!(self.geste, Some(Geste::Bout { .. }));
         if tirage || (self.outil == Outil::Fleche && self.geste.is_none()) {
             if let Some(it) = self.survol.and_then(|id| self.board.get(id)) {
-                for (u, w) in SIDES {
-                    v.push((it.at(u, w), Role::Repere));
+                if it.kind == Kind::Connector {
+                    // Another arrow: its middle and the points it goes through.
+                    let c = route::curve(&self.board, it);
+                    for t in route::anchors(&self.board, it) {
+                        v.push((c.at(t), Role::Repere));
+                    }
+                } else {
+                    for (u, w) in SIDES {
+                        v.push((it.at(u, w), Role::Repere));
+                    }
                 }
             }
         }
@@ -469,13 +486,51 @@ impl Tableau {
 
 fn montrer(f: &AppWindow, t: &mut Tableau) {
     let g = f.global::<Vue>();
-    // The items.
+    t.choix.retain(|id| t.board.get(*id).is_some());
+    // What is chosen, marked one by one when there are several; what a chosen frame
+    // carries along, marked fainter.
+    let plusieurs = t.choix.len() > 1;
+    let mut portes: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    for id in &t.choix {
+        if t.board.get(*id).is_some_and(|i| i.kind == Kind::Frame) {
+            for h in t.board.held_by(*id) {
+                if !t.choix.contains(&h) {
+                    portes.insert(h);
+                }
+            }
+        }
+    }
+    let marque = |id: u64| -> i32 {
+        if plusieurs && t.choix.contains(&id) {
+            1
+        } else if portes.contains(&id) {
+            2
+        } else {
+            0
+        }
+    };
     let neufs: Vec<BoardItemData> = t
         .board
         .items
         .iter()
-        .map(|it| donnee(&t.board, it, t.edition == Some(it.id)))
+        .map(|it| donnee(&t.board, it, t.edition == Some(it.id), marque(it.id)))
         .collect();
+    g.set_sel_count(t.choix.len() as i32);
+    g.set_sel_carried(portes.len() as i32);
+    // The alignment guides.
+    let guides: Vec<BoardGuideData> = t
+        .guides
+        .iter()
+        .map(|gd| BoardGuideData {
+            vertical: gd.vertical,
+            at: gd.at,
+            from: gd.from,
+            to: gd.to,
+        })
+        .collect();
+    if !guides.is_empty() || g.get_guides().row_count() > 0 {
+        g.set_guides(ModelRc::new(VecModel::from(guides)));
+    }
     if t.items.row_count() == neufs.len() {
         for (i, d) in neufs.into_iter().enumerate() {
             if t.items.row_data(i).as_ref() != Some(&d) {
@@ -487,7 +542,6 @@ fn montrer(f: &AppWindow, t: &mut Tableau) {
     }
     montrer_poignees(f, t);
     // What is chosen, and its look for the toolbar.
-    t.choix.retain(|id| t.board.get(*id).is_some());
     let boites: Vec<Rect> = t
         .choix
         .iter()
@@ -530,6 +584,7 @@ fn montrer(f: &AppWindow, t: &mut Tableau) {
         g.set_bold(it.bold);
         g.set_italic(it.italic);
         g.set_align(it.align.index() as i32);
+        g.set_valign(it.valign.resolved(it.kind) as i32);
         g.set_shape(it.shape.index() as i32);
         g.set_way(it.way.index() as i32);
         g.set_rounded(it.rounded);
@@ -584,7 +639,7 @@ fn boite_texte(b: &Board, it: &Item) -> Rect {
     match it.kind {
         Kind::Frame => Rect::new(it.x, it.y - 24.0, it.w.max(160.0), 20.0),
         Kind::Connector => {
-            let m = route::curve(b, it).midpoint();
+            let m = route::curve(b, it).at(route::label_at(it));
             let w = 160.0;
             let h = it.size * 1.6;
             Rect::new(m.x - w / 2.0, m.y - h / 2.0, w, h)
@@ -617,7 +672,10 @@ fn montrer_edition(f: &AppWindow, t: &Tableau) {
         Kind::Connector => 1,
         _ => it.align.index() as i32,
     });
-    g.set_edit_middle(it.kind == Kind::Shape);
+    g.set_edit_valign(match it.kind {
+        Kind::Frame | Kind::Connector => 1,
+        _ => it.valign.resolved(it.kind) as i32,
+    });
     let (c, cc) = couleur(&it.color);
     g.set_edit_colour(c);
     g.set_edit_custom(cc);
@@ -839,7 +897,19 @@ fn presser(f: &AppWindow, t: &mut Tableau, p: Pt, shift: bool, droit: bool) {
                     }
                     if !ids.is_empty() {
                         t.retenir();
-                        t.geste = Some(Geste::Deplacer { ids, dernier: p });
+                        let boite = ids
+                            .iter()
+                            .filter_map(|i| t.board.get(*i))
+                            .filter(|i| i.kind != Kind::Connector)
+                            .map(|i| t.board.bbox(i))
+                            .reduce(|a, b| a.union(b))
+                            .unwrap_or_default();
+                        t.geste = Some(Geste::Deplacer {
+                            ids,
+                            depart: p,
+                            fait: Pt::default(),
+                            boite,
+                        });
                     }
                 }
                 None => {
@@ -929,10 +999,34 @@ fn tirer(f: &AppWindow, t: &mut Tableau, p: Pt, shift: bool, ctrl: bool) {
     t.bouge = true;
     t.pointeur = p;
     let accroche = t.tol(14.0);
+    // What is aligned to: the boxes in the view and a little around it. Ctrl moves
+    // freely.
+    let pres = t.vue.inflate(t.vue.w.max(t.vue.h) * 0.25);
+    let aimant = t.tol(6.0);
+    t.guides.clear();
     match t.geste.clone() {
-        Some(Geste::Deplacer { ids, dernier }) => {
-            t.board.translate(&ids, p.x - dernier.x, p.y - dernier.y);
-            t.geste = Some(Geste::Deplacer { ids, dernier: p });
+        Some(Geste::Deplacer {
+            ids,
+            depart,
+            fait,
+            boite,
+        }) => {
+            let (mut dx, mut dy) = (p.x - depart.x, p.y - depart.y);
+            if !ctrl && boite.w + boite.h > 0.0 {
+                let r = Rect::new(boite.x + dx, boite.y + dy, boite.w, boite.h);
+                let (sx, sy, g) =
+                    snap::align(&t.board, &ids, r, Lines::ALL, Lines::ALL, aimant, pres);
+                dx += sx;
+                dy += sy;
+                t.guides = g;
+            }
+            t.board.translate(&ids, dx - fait.x, dy - fait.y);
+            t.geste = Some(Geste::Deplacer {
+                ids,
+                depart,
+                fait: Pt::new(dx, dy),
+                boite,
+            });
         }
         Some(Geste::Redim { id, poignee, avant }) => {
             let (u, v) = POIGNEES[poignee];
@@ -957,6 +1051,29 @@ fn tirer(f: &AppWindow, t: &mut Tableau, p: Pt, shift: bool, ctrl: bool) {
                 n.y = if v == 0.0 { r.bottom() - h } else { r.y };
                 n.w = w;
                 n.h = h;
+            } else if !ctrl {
+                // The edge pulled meets the edges and middles around it (pulled past the
+                // other edge, the box turned over and the pulled edge is the other side).
+                let bord = |f: f32, debut: f32, fin: f32| {
+                    if f == 0.0 {
+                        if debut <= fin {
+                            Lines::START
+                        } else {
+                            Lines::END
+                        }
+                    } else if f == 1.0 {
+                        if fin >= debut {
+                            Lines::END
+                        } else {
+                            Lines::START
+                        }
+                    } else {
+                        Lines::NONE
+                    }
+                };
+                let across = bord(u, x0, x1);
+                let down = bord(v, y0, y1);
+                (n, t.guides) = resized(&t.board, id, n, across, down, aimant, pres);
             }
             n.w = n.w.max(8.0);
             n.h = n.h.max(8.0);
@@ -979,16 +1096,50 @@ fn tirer(f: &AppWindow, t: &mut Tableau, p: Pt, shift: bool, ctrl: bool) {
             if let Some((source, _)) = cote {
                 sauf.push(source);
             }
+            // An arrow others are tied to does not tie to an arrow itself: ties never
+            // chain.
+            let porte = t.board.items.iter().any(|c| {
+                [c.from, c.to]
+                    .into_iter()
+                    .flatten()
+                    .any(|e| e.item == Some(id))
+            });
+            if porte {
+                sauf.extend(
+                    t.board
+                        .items
+                        .iter()
+                        .filter(|c| c.kind == Kind::Connector)
+                        .map(|c| c.id),
+                );
+            }
             // Ctrl keeps the end free, wherever it is dropped.
-            let e = if ctrl {
+            let mut e = if ctrl {
                 End::free(p)
             } else {
                 t.board.attach(p, accroche, &sauf)
             };
+            // A free end nearly level with the other end, or nearly above it: put in
+            // line, so the arrow is straight.
+            if e.item.is_none() && !ctrl {
+                let autre = t
+                    .board
+                    .get(id)
+                    .and_then(|a| if fin { a.from } else { a.to });
+                if let Some(o) = autre.map(|o| t.board.end_point(&o)) {
+                    let pres = t.tol(8.0);
+                    if (e.y - o.y).abs() <= pres {
+                        e.y = o.y;
+                    }
+                    if (e.x - o.x).abs() <= pres {
+                        e.x = o.x;
+                    }
+                }
+            }
             t.survol = e.item.or_else(|| {
-                t.board
-                    .hit(p, accroche)
-                    .filter(|i| t.board.get(*i).is_some_and(|it| it.kind.boxed()))
+                t.board.hit(p, accroche).filter(|i| {
+                    *i != id && t.board.get(*i).is_some_and(|it| peut_tenir(&t.board, it))
+                })
             });
             if let Some(it) = t.board.get_mut(id) {
                 if fin {
@@ -1069,6 +1220,19 @@ fn tirer(f: &AppWindow, t: &mut Tableau, p: Pt, shift: bool, ctrl: bool) {
                 };
                 r.w = c;
                 r.h = c;
+            } else if !ctrl {
+                // The corner being drawn meets the edges and middles around it.
+                let across = if p.x >= depart.x {
+                    Lines::END
+                } else {
+                    Lines::START
+                };
+                let down = if p.y >= depart.y {
+                    Lines::END
+                } else {
+                    Lines::START
+                };
+                (r, t.guides) = resized(&t.board, id, r, across, down, aimant, pres);
             }
             if let Some(it) = t.board.get_mut(id) {
                 it.set_rect(r);
@@ -1079,23 +1243,58 @@ fn tirer(f: &AppWindow, t: &mut Tableau, p: Pt, shift: bool, ctrl: bool) {
     montrer(f, t);
 }
 
+/// A box being resized or drawn, its moving edges aligned with the boxes around.
+fn resized(
+    b: &Board,
+    id: u64,
+    mut n: Rect,
+    across: Lines,
+    down: Lines,
+    tol: f32,
+    pres: Rect,
+) -> (Rect, Vec<snap::Guide>) {
+    let (sx, sy, g) = snap::align(b, &[id], n, across, down, tol, pres);
+    if across == Lines::START {
+        n.x += sx;
+        n.w -= sx;
+    } else if across == Lines::END {
+        n.w += sx;
+    }
+    if down == Lines::START {
+        n.y += sy;
+        n.h -= sy;
+    } else if down == Lines::END {
+        n.h += sy;
+    }
+    (n, g)
+}
+
 fn lacher(f: &AppWindow, t: &mut Tableau, p: Pt) {
+    t.guides.clear();
     let Some(geste) = t.geste.take() else {
+        montrer(f, t);
         return;
     };
     let bouge = t.bouge;
     t.bouge = false;
     t.survol = None;
     match geste {
+        // A corner or a piece only clicked: the arrow as it was (a press on a piece's
+        // middle had already put a point there, to carry).
+        Geste::Coin { .. } | Geste::Segment { .. } if !bouge => {
+            if t.undo.len() > t.pile {
+                if let Some(b) = t.undo.pop() {
+                    t.board = b;
+                }
+            }
+            montrer(f, t);
+            return;
+        }
         Geste::Deplacer { .. } if !bouge => {
             // A click on one of several chosen: that one alone. A second click on the
-            // only one chosen opens its words.
+            // only box chosen opens its words (an arrow's double-click bends it instead).
             if let Some(id) = t.board.hit(p, t.tol(6.0)) {
-                if t.deja
-                    && t.board
-                        .get(id)
-                        .is_some_and(|i| i.kind.boxed() || i.kind == Kind::Connector)
-                {
+                if t.deja && t.board.get(id).is_some_and(|i| i.kind.boxed()) {
                     t.oublier_si_pareil();
                     editer(f, t, id);
                     return;
@@ -1192,6 +1391,48 @@ fn lacher(f: &AppWindow, t: &mut Tableau, p: Pt) {
     }
 }
 
+/// What an arrow's end can tie to: a box, or an arrow not itself tied to an arrow.
+fn peut_tenir(b: &Board, it: &Item) -> bool {
+    it.kind.boxed() || (it.kind == Kind::Connector && !b.on_a_line(it))
+}
+
+/// Whether `p` is on an arrow's words (the patch they stand on).
+fn sur_les_mots(b: &Board, id: u64, p: Pt) -> bool {
+    let Some(it) = b.get(id) else { return false };
+    if it.text.trim().is_empty() {
+        return false;
+    }
+    let m = route::curve(b, it).at(route::label_at(it));
+    let plus_longue = it
+        .text
+        .lines()
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(0) as f32;
+    let lignes = it.text.lines().count().max(1) as f32;
+    let w = plus_longue * it.size * 0.55 + 14.0;
+    let h = lignes * it.size * 1.35 + 6.0;
+    Rect::new(m.x - w / 2.0, m.y - h / 2.0, w, h).contains(p)
+}
+
+/// A point added to the arrow `id` at `p`, in the piece it falls on: the arrow then
+/// goes through it, and it can be dragged as any other.
+fn ajouter_point(t: &mut Tableau, id: u64, p: Pt) -> Option<usize> {
+    fixer_coins(t, id);
+    let it = t.board.get(id)?;
+    let full = route::through(&t.board, it);
+    let k = full
+        .windows(2)
+        .enumerate()
+        .map(|(k, w)| (k, geom::segment_distance(w[0], w[1], p)))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map_or(0, |(k, _)| k);
+    let it = t.board.get_mut(id)?;
+    let k = k.min(it.points.len());
+    it.points.insert(k, p);
+    Some(k)
+}
+
 fn double_clic(f: &AppWindow, t: &mut Tableau, p: Pt) {
     t.geste = None;
     t.bouge = false;
@@ -1216,6 +1457,17 @@ fn double_clic(f: &AppWindow, t: &mut Tableau, p: Pt) {
         return;
     }
     match t.board.hit(p, t.tol(6.0)) {
+        // On an arrow: its words when on them, a new point to bend it anywhere else.
+        Some(id) if t.board.get(id).is_some_and(|i| i.kind == Kind::Connector) => {
+            if sur_les_mots(&t.board, id, p) {
+                editer(f, t, id);
+            } else {
+                t.retenir();
+                ajouter_point(t, id, p);
+                t.choix = vec![id];
+                change(f, t);
+            }
+        }
         Some(id) => editer(f, t, id),
         None => {
             // On the empty board: a text, typed at once.
@@ -1268,7 +1520,7 @@ fn survoler(f: &AppWindow, t: &mut Tableau, p: Pt) {
         let s = t
             .board
             .hit(p, t.tol(14.0))
-            .filter(|i| t.board.get(*i).is_some_and(|it| it.kind.boxed()));
+            .filter(|i| t.board.get(*i).is_some_and(|it| peut_tenir(&t.board, it)));
         if s != t.survol {
             t.survol = s;
             montrer_poignees(f, t);
@@ -1471,14 +1723,27 @@ fn action(f: &AppWindow, t: &mut Tableau, quoi: &str) {
                 .is_some_and(|i| i.italic);
             appliquer(f, t, |it| it.italic = b);
         }
+        // Across (along, on an arrow): one given, or the next one.
         "align" => {
-            let a = t
-                .choix
-                .first()
-                .and_then(|i| t.board.get(*i))
-                .map_or(Align::Center, |i| i.align);
-            let suivant = Align::from_index((a.index() + 1) % 3);
-            appliquer(f, t, |it| it.align = suivant);
+            let a = if valeur.is_empty() {
+                let a = t
+                    .choix
+                    .first()
+                    .and_then(|i| t.board.get(*i))
+                    .map_or(Align::Center, |i| i.align);
+                Align::from_index((a.index() + 1) % 3)
+            } else {
+                Align::from_index(entier)
+            };
+            appliquer(f, t, |it| it.align = a);
+        }
+        "valign" => {
+            let v = VAlign::from_index(entier);
+            appliquer(f, t, |it| {
+                if it.kind.boxed() {
+                    it.valign = v;
+                }
+            });
         }
         "width" => {
             if let Ok(w) = valeur.parse::<f32>() {
@@ -1775,6 +2040,107 @@ pub(super) fn fermer(f: &AppWindow, e: &mut Etat) {
     g.set_editing(false);
 }
 
+/// The whiteboard `rel` made into a PNG where the user says: the one open as it is now,
+/// else its file.
+pub(super) fn exporter_png(f: &AppWindow, e: &mut Etat, rel: &str) {
+    let board = match &e.board {
+        Some(t) if t.rel == rel => t.board.clone(),
+        _ => {
+            let Some(espace) = e.espace() else { return };
+            match espace
+                .read(rel)
+                .map_err(|e| e.to_string())
+                .and_then(|(t, _)| Board::from_json(&t).map_err(|e| e.to_string()))
+            {
+                Ok(b) => b,
+                Err(err) => {
+                    f.set_status(format!("Could not read the whiteboard: {err}").into());
+                    return;
+                }
+            }
+        }
+    };
+    let Some((svg, boite)) = iris_board::svg::to_svg(&board) else {
+        f.set_toast("This whiteboard is empty: there is nothing to export.".into());
+        return;
+    };
+    let nom = stem(rel);
+    let Some(chemin) = crate::dialogue::FileDialog::new()
+        .set_title("Export the whiteboard as an image")
+        .set_file_name(format!("{nom}.png"))
+        .add_filter("PNG image", &["png"])
+        .save_file()
+    else {
+        return;
+    };
+    match png(&svg, boite).and_then(|o| std::fs::write(&chemin, o).map_err(|e| e.to_string())) {
+        Ok(()) => f.set_toast(format!("“{nom}” is exported.").into()),
+        Err(err) => f.set_status(format!("Could not export the whiteboard: {err}").into()),
+    }
+}
+
+/// The fonts the board uses, from the system's folder, for the picture's words.
+fn polices(db: &mut resvg::usvg::fontdb::Database) {
+    let dossier =
+        std::path::PathBuf::from(std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()))
+            .join("Fonts");
+    for nom in [
+        "SegUIVar.ttf",
+        "segoeui.ttf",
+        "segoeuib.ttf",
+        "segoeuii.ttf",
+        "georgia.ttf",
+        "georgiab.ttf",
+        "georgiai.ttf",
+        "CascadiaMono.ttf",
+        "consola.ttf",
+        "segoepr.ttf",
+        "segoeprb.ttf",
+        "arial.ttf",
+    ] {
+        if let Ok(octets) = std::fs::read(dossier.join(nom)) {
+            db.load_font_data(octets);
+        }
+    }
+    db.set_sans_serif_family("Segoe UI");
+}
+
+/// The SVG drawn at twice the board's size (no side over 8000 pixels), as PNG bytes.
+fn png(svg: &str, boite: Rect) -> Result<Vec<u8>, String> {
+    use resvg::{tiny_skia, usvg};
+    let mut opt = usvg::Options {
+        font_family: "Segoe UI".into(),
+        ..usvg::Options::default()
+    };
+    polices(opt.fontdb_mut());
+    let arbre = usvg::Tree::from_str(svg, &opt).map_err(|e| e.to_string())?;
+    let cote = boite.w.max(boite.h).max(1.0);
+    let k = 2.0_f32.min(8000.0 / cote);
+    let (w, h) = (
+        ((boite.w * k).ceil() as u32).max(1),
+        ((boite.h * k).ceil() as u32).max(1),
+    );
+    let mut pixels =
+        tiny_skia::Pixmap::new(w, h).ok_or_else(|| "the picture would be too large".to_string())?;
+    resvg::render(
+        &arbre,
+        tiny_skia::Transform::from_scale(k, k),
+        &mut pixels.as_mut(),
+    );
+    // Tiny-skia keeps its colours premultiplied: given back as they are.
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for p in pixels.pixels() {
+        let c = p.demultiply();
+        rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    }
+    let image = image::RgbaImage::from_raw(w, h, rgba).ok_or("the picture could not be made")?;
+    let mut sortie = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut sortie, image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    Ok(sortie.into_inner())
+}
+
 /// A new whiteboard in `folder`.
 pub(super) fn nouveau(f: &AppWindow, e: &mut Etat, folder: &str) -> Option<String> {
     let espace = e.espace()?;
@@ -1911,21 +2277,76 @@ mod tests {
             Shape::Diamond,
             Rect::new(0.0, 0.0, 100.0, 60.0),
         ));
-        let d = donnee(&b, &b.items[0], false);
+        let d = donnee(&b, &b.items[0], false, 0);
         assert_eq!(d.kind, 0);
         assert_eq!(d.fill, 5);
         assert_eq!(d.stroke, 14);
         assert!(d.path.starts_with("M 50 0"));
+        // A shape's words stand in its middle unless told otherwise.
+        assert_eq!(d.valign, 1);
         let a = b.take_id();
         b.items.push(Item::connector(
             a,
             End::on(id, 1.0, 0.5),
             End::free(Pt::new(300.0, 30.0)),
         ));
-        let d = donnee(&b, &b.items[1], false);
+        let d = donnee(&b, &b.items[1], false, 1);
         assert_eq!(d.kind, 4);
+        assert_eq!(d.marked, 1);
         assert!(d.x <= 100.0 && d.x + d.width >= 300.0);
         assert!(!d.heads.is_empty());
+    }
+
+    #[test]
+    fn a_point_is_added_to_the_piece_it_falls_on() {
+        let mut b = Board::default();
+        let a = b.take_id();
+        b.items.push(Item::connector(
+            a,
+            End::free(Pt::new(0.0, 0.0)),
+            End::free(Pt::new(200.0, 0.0)),
+        ));
+        let mut t = Tableau::nouveau("x.board", b, None);
+        assert_eq!(ajouter_point(&mut t, a, Pt::new(100.0, 30.0)), Some(0));
+        assert_eq!(ajouter_point(&mut t, a, Pt::new(150.0, 10.0)), Some(1));
+        assert_eq!(
+            t.board.get(a).unwrap().points,
+            vec![Pt::new(100.0, 30.0), Pt::new(150.0, 10.0)]
+        );
+        // Its words, when it has some, are where a double-click edits rather than bends.
+        t.board.get_mut(a).unwrap().text = "yes".into();
+        let m = route::curve(&t.board, t.board.get(a).unwrap()).at(0.5);
+        assert!(sur_les_mots(&t.board, a, m));
+        assert!(!sur_les_mots(&t.board, a, Pt::new(0.0, 0.0)));
+    }
+
+    #[test]
+    fn a_resized_edge_meets_its_neighbour() {
+        let mut b = Board::default();
+        let x = b.take_id();
+        b.items.push(Item::shape(
+            x,
+            Shape::Rect,
+            Rect::new(0.0, 0.0, 100.0, 50.0),
+        ));
+        let y = b.take_id();
+        b.items.push(Item::shape(
+            y,
+            Shape::Rect,
+            Rect::new(0.0, 100.0, 96.0, 50.0),
+        ));
+        let pres = Rect::new(-500.0, -500.0, 1000.0, 1000.0);
+        let (n, g) = resized(
+            &b,
+            y,
+            Rect::new(0.0, 100.0, 96.0, 50.0),
+            Lines::END,
+            Lines::NONE,
+            6.0,
+            pres,
+        );
+        assert_eq!(n.w, 100.0);
+        assert!(g.iter().any(|g| g.vertical && g.at == 100.0));
     }
 
     #[test]

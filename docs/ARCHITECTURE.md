@@ -1279,6 +1279,25 @@ clipboard. The assistant reads and draws through `boards_read`, `boards_add` (ar
 named by id or by a `ref` of the same call, tied to the sides that face each other) and
 `boards_update`.
 
+**Whiteboards, 7.16.0.** What the file keeps did not change: everything below is found
+each time an arrow is drawn, so taking an item away gives the others back their place.
+An end may tie to another arrow (`End.item` an arrow, `x` the fraction of its length);
+`route::end_point_at` follows such a tie one level down and stops at a depth of two, and
+nothing ties to an arrow that is itself tied to one, so ties never chain. Ends at the
+same side's middle are spread along it (`port`, 22 units apart at most, in the order of
+where their other ends are, so they never cross); two ends at the middles of sides that
+face each other, within 24 units across and over a part both sides share, are drawn in
+line (`aligner`), so a small misalignment never bends an arrow. `snap::align` gives the
+shift that puts the moving box's edges or middle (or only the edge being pulled, when
+resizing) on those of the boxes near the view, within 6 px, the nearest on each axis,
+with a guide for every line now shared; `Ctrl` turns it off. `svg::to_svg` writes the
+board in the light theme with its words wrapped by estimated widths (SVG does not
+wrap); `notes/board.rs` draws it with `resvg` — the version and features Slint already
+builds — at twice the size (8000 px a side at most), with the system's fonts read from
+`%WINDIR%\Fonts`, and encodes it with `image`. A middle-button drag is the TouchArea's
+press only for the left button: the view now follows the pointer from where it was taken
+(`ancre-x/y`), whatever the button.
+
 **Blocks and cells selected** (4.20.0, drawn by the editor since 4.21.0). A selection
 running over several blocks makes Alt and an arrow, Tab and Ctrl+D act on those blocks
 whole (`notes/blocs.rs`, pure functions of `iris_notes::edit`: `move_blocks`,

@@ -3,6 +3,24 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.16.0 — 2026-11-11
+
+### New
+- Shapes snap into line with their neighbours as you move, resize or draw them, with guides to show it; hold Ctrl to place freely.
+- Arrows can start or end on another arrow, at its middle or one of its bends.
+- Double-click an arrow to add a bend where you clicked.
+- Set where text stands in a box (left, centre, right, top, middle, bottom) and where it sits along an arrow.
+- Export a whiteboard as a PNG picture from its menu in the notes list.
+
+### Improved
+- An arrow between two nearly aligned shapes is drawn perfectly straight.
+- Arrows that meet at the same side of a shape spread out so they no longer overlap.
+- With several items chosen, each one is outlined, and what a chosen frame carries along shows too.
+- A button on an arrow's toolbar writes on it.
+
+### Fixed
+- Moving the board with the middle button or the hand no longer jumps.
+
 ## 7.15.0 — 2026-11-09
 
 ### New

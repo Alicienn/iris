@@ -4,7 +4,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Segmented } from "@iris/controls/choice.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
-import { BoardItemData, BoardHandleData } from "@iris/types.slint";
+import { BoardItemData, BoardHandleData, BoardGuideData } from "@iris/types.slint";
 
 // A whiteboard open in Notes: a plane without edges, zoomed and moved here, its items
 // drawn from what Rust gives (board units, one pixel at 100 %). Every press, drag and
@@ -15,8 +15,13 @@ import { BoardItemData, BoardHandleData } from "@iris/types.slint";
 export global Board {
     in property <[BoardItemData]> items;
     in property <[BoardHandleData]> handles;
+    /// The lines what moves now shares with what is around.
+    in property <[BoardGuideData]> guides;
     /// What the toolbar is for: −1 nothing chosen, 0–5 an item's kind, 6 several kinds.
     in property <int> sel-kind: -1;
+    /// How many items are chosen, and how many more move with them (a frame's).
+    in property <int> sel-count;
+    in property <int> sel-carried;
     /// The box around what is chosen (board units), drawn when `sel-box`.
     in property <float> sel-x;
     in property <float> sel-y;
@@ -45,6 +50,7 @@ export global Board {
     in property <bool> bold;
     in property <bool> italic;
     in property <int> align: 1;
+    in property <int> valign: 1;
     in property <int> shape: 1;
     in property <int> way;
     in property <bool> rounded;
@@ -78,7 +84,8 @@ export global Board {
     in property <bool> edit-bold;
     in property <bool> edit-italic;
     in property <int> edit-align;
-    in property <bool> edit-middle;
+    /// 0 top, 1 middle, 2 bottom.
+    in property <int> edit-valign;
     in property <int> edit-colour: -1;
     in property <color> edit-custom;
     // The view: 1 is 100 %; where the board's origin is in the view.
@@ -174,6 +181,24 @@ component BoardItem inherits Rectangle {
         drop-shadow-offset-y: root.item.kind == 1 ? max(0.5px, 2 * root.u) : 0px;
         drop-shadow-color: root.item.kind == 1 ? Tokens.shadow-card : transparent;
     }
+    // An arrow or a stroke chosen among several, or carried by a frame: a glow under
+    // its line.
+    if (root.item.kind == 4 || root.item.kind == 5) && root.item.marked != 0: Path {
+        x: -(root.epaisseur + 6px) / 2;
+        y: -(root.epaisseur + 6px) / 2;
+        width: root.width + root.epaisseur + 6px;
+        height: root.height + root.epaisseur + 6px;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: max(0.01, root.item.width);
+        viewbox-height: max(0.01, root.item.height);
+        commands: root.item.path;
+        fill: transparent;
+        stroke: Tokens.accent.with-alpha(root.item.marked == 1 ? 0.35 : 0.2);
+        stroke-width: root.epaisseur + 6px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
     // A shape drawn by its outline; the box grown by the line so the outline lies on it.
     if root.item.kind == 0 && root.item.path != "": Path {
         x: -root.epaisseur / 2;
@@ -232,7 +257,20 @@ component BoardItem inherits Rectangle {
         font-italic: root.item.italic;
         color: Board.colour(root.item.text-colour, root.item.text-custom);
         horizontal-alignment: root.item.align == 0 ? TextHorizontalAlignment.left : (root.item.align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center);
-        vertical-alignment: root.item.kind == 0 ? TextVerticalAlignment.center : TextVerticalAlignment.top;
+        vertical-alignment: root.item.valign == 1 ? TextVerticalAlignment.center
+            : root.item.valign == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.top;
+    }
+    // A box chosen among several: its own outline, so each one chosen shows; carried by
+    // a frame that is chosen: a fainter one, so what moves with it shows too.
+    Rectangle {
+        visible: root.item.marked != 0 && root.item.kind <= 3;
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: 3px;
+        border-width: root.item.marked == 1 ? 1.5px : 1px;
+        border-color: root.item.marked == 1 ? Tokens.accent : Tokens.accent.with-alpha(0.45);
     }
     // A frame's title, above it, kept readable at every zoom.
     if root.item.kind == 3 && !root.item.editing: Text {
@@ -496,6 +534,14 @@ export component BoardView inherits Rectangle {
     property <length> depart-y;
     // The view carried by the hand tool or the middle button.
     property <bool> panning;
+    // Where the pointer was when the view was taken.
+    property <length> ancre-x;
+    property <length> ancre-y;
+    function suivre(mx: length, my: length) {
+        Board.pan-x = root.depart-x + mx - root.ancre-x;
+        Board.pan-y = root.depart-y + my - root.ancre-y;
+        root.vu = true;
+    }
     property <bool> shift;
     property <bool> ctrl;
 
@@ -665,6 +711,14 @@ export component BoardView inherits Rectangle {
         border-width: 1px;
         border-color: Tokens.accent;
     }
+    // The lines what moves shares with its neighbours, while it moves.
+    for g in Board.guides: Rectangle {
+        x: g.vertical ? Board.pan-x + g.at * Board.zoom * 1px - 0.5px : Board.pan-x + g.from * Board.zoom * 1px;
+        y: g.vertical ? Board.pan-y + g.from * Board.zoom * 1px : Board.pan-y + g.at * Board.zoom * 1px - 0.5px;
+        width: g.vertical ? 1px : max(1px, (g.to - g.from) * Board.zoom * 1px);
+        height: g.vertical ? max(1px, (g.to - g.from) * Board.zoom * 1px) : 1px;
+        background: Tokens.pink;
+    }
     for h in Board.handles: BoardHandle {
         handle: h;
     }
@@ -692,10 +746,15 @@ export component BoardView inherits Rectangle {
                 if (Board.menu != "") {
                     Board.menu = "";
                 }
+                // The middle button is not the TouchArea's own press (its `pressed-x`
+                // stays where the last left press was): the view follows the pointer from
+                // where it is now, by every move, whichever button holds it.
                 if (event.button == PointerEventButton.middle || (event.button == PointerEventButton.left && Board.tool == 1)) {
                     root.panning = true;
                     root.depart-x = Board.pan-x;
                     root.depart-y = Board.pan-y;
+                    root.ancre-x = self.mouse-x;
+                    root.ancre-y = self.mouse-y;
                     touches.focus();
                     return;
                 }
@@ -721,15 +780,17 @@ export component BoardView inherits Rectangle {
                 if (event.button == PointerEventButton.left) {
                     Board.pointer(2, 0, bx, by, event.modifiers.shift, event.modifiers.control);
                 }
-            } else if (event.kind == PointerEventKind.move && !self.pressed) {
-                Board.pointer(1, -1, bx, by, event.modifiers.shift, event.modifiers.control);
+            } else if (event.kind == PointerEventKind.move) {
+                if (root.panning) {
+                    root.suivre(self.mouse-x, self.mouse-y);
+                } else if (!self.pressed) {
+                    Board.pointer(1, -1, bx, by, event.modifiers.shift, event.modifiers.control);
+                }
             }
         }
         moved => {
             if (root.panning) {
-                Board.pan-x = root.depart-x + self.mouse-x - self.pressed-x;
-                Board.pan-y = root.depart-y + self.mouse-y - self.pressed-y;
-                root.vu = true;
+                root.suivre(self.mouse-x, self.mouse-y);
                 return;
             }
             Board.pointer(1, 0, (self.mouse-x - Board.pan-x) / Board.zoom / 1px,
@@ -765,7 +826,8 @@ export component BoardView inherits Rectangle {
             font-italic: Board.edit-italic;
             color: Board.colour(Board.edit-colour, Board.edit-custom);
             horizontal-alignment: Board.edit-align == 0 ? TextHorizontalAlignment.left : (Board.edit-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center);
-            vertical-alignment: Board.edit-middle ? TextVerticalAlignment.center : TextVerticalAlignment.top;
+            vertical-alignment: Board.edit-valign == 1 ? TextVerticalAlignment.center
+                : Board.edit-valign == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.top;
             selection-background-color: Tokens.accent.transparentize(0.7);
             init => {
                 self.focus();
@@ -1075,12 +1137,32 @@ export component BoardView inherits Rectangle {
                     clicked => { root.menu("colour", self.absolute-position.x, self.absolute-position.y + 42px); }
                 }
             }
-            if Board.sel-kind <= 2: IconButton {
+            // Where the words stand: across and down (along, on an arrow).
+            if Board.sel-kind <= 2 || Board.sel-kind == 4: ChoiceButton {
                 y: 5px;
                 icon: Board.align == 0 ? Icons.align-left : Board.align == 2 ? Icons.align-right : Icons.align-center;
-                label: "Alignment";
+                label: Board.sel-kind == 4 ? "Where the text stands" : "Alignment";
+                active: Board.menu == "align";
+                clicked => { root.menu("align", self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+            }
+            // An arrow's words.
+            if Board.sel-kind == 4: IconButton {
+                y: 5px;
+                icon: Icons.text-tool;
+                label: "Write on the arrow";
+                shortcut: "Enter";
                 button-size: 32px;
-                clicked => { Board.action("align"); }
+                clicked => { Board.action("edit"); }
+            }
+            // Several chosen: how many, and how many more come along.
+            if Board.sel-count > 1 || Board.sel-carried > 0: BarSeparator { }
+            if Board.sel-count > 1 || Board.sel-carried > 0: Text {
+                text: Board.sel-carried > 0
+                    ? (Board.sel-count > 1 ? "\{Board.sel-count} chosen · \{Board.sel-carried} inside" : "\{Board.sel-carried} inside")
+                    : "\{Board.sel-count} chosen";
+                font-size: 12px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
             }
             BarSeparator { }
             IconButton {
@@ -1389,7 +1471,7 @@ export component BoardMenu inherits Rectangle {
         available-height: root.height;
         menu-x: Board.menu-x;
         menu-y: Board.menu-y;
-        menu-width: root.couleurs ? 246px : Board.menu == "tool-shape" || Board.menu == "shape" ? 186px : Board.menu == "font" ? 236px : 220px;
+        menu-width: root.couleurs ? 246px : Board.menu == "tool-shape" || Board.menu == "shape" ? 186px : Board.menu == "font" || Board.menu == "align" ? 236px : 220px;
         menu-height: entries.preferred-height + 8px;
         entries := VerticalLayout {
             padding: 4px;
@@ -1540,6 +1622,36 @@ export component BoardMenu inherits Rectangle {
                             clicked => { root.chosen("size:" + s); }
                         }
                     }
+                }
+            }
+            // Across and down for words in a box; along the line for an arrow's. The menu
+            // stays open, so both can be set.
+            if Board.menu == "align": VerticalLayout {
+                padding: 8px;
+                spacing: 8px;
+                Text {
+                    text: Board.sel-kind == 4 ? "Along the arrow" : "Across";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                }
+                Segmented {
+                    options: Board.sel-kind == 4 ? ["Start", "Middle", "End"] : ["Left", "Centre", "Right"];
+                    selected: Board.align;
+                    segment-padding: 14px;
+                    chosen(i) => { Board.action("align:" + i); }
+                }
+                if Board.sel-kind != 4: Text {
+                    text: "Down";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                }
+                if Board.sel-kind != 4: Segmented {
+                    options: ["Top", "Middle", "Bottom"];
+                    selected: Board.valign;
+                    segment-padding: 14px;
+                    chosen(i) => { Board.action("valign:" + i); }
                 }
             }
             if Board.menu == "width": VerticalLayout {

@@ -46,6 +46,9 @@ iris-vault = { path = "../iris-vault" }
 iris-math = { path = "../iris-math" }
 iris-sheets = { path = "../iris-sheets" }
 iris-board = { path = "../iris-board" }
+# A whiteboard exported as a picture: its SVG drawn. Slint already builds this version
+# with text, so it costs nothing more.
+resvg = { version = "0.48", default-features = false, features = ["text"] }
 iris-mcp = { path = "../iris-mcp" }
 iris-search = { workspace = true }
 # The notes' editor lays its text out as Slint does (the same version, already in the

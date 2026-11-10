@@ -3722,6 +3722,14 @@ export component NotesRowMenu inherits Rectangle {
             }
             if root.kind == 0: MenuSeparator {}
 
+            // A whiteboard: kept as a picture.
+            if root.kind == 5 && !Layout.compact: MenuEntry {
+                icon: Icons.image;
+                label: "Export as image (PNG)…";
+                activated => { root.chosen("export-png"); }
+            }
+            if root.kind == 5 && !Layout.compact: MenuSeparator {}
+
             // Opening it. A phone has no tabs side by side, no note beside, no other
             // app to hand a file to: its menu is the mockups' N1 list.
             if (root.kind == 1 || root.kind == 2) && !Layout.compact: MenuEntry {

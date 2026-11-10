@@ -911,6 +911,10 @@ export struct BoardItemData {
     italic: bool,
     /// 0 left, 1 centre, 2 right.
     align: int,
+    /// 0 top, 1 middle, 2 bottom.
+    valign: int,
+    /// 1 chosen among several, 2 carried by a frame that is chosen: outlined.
+    marked: int,
     /// Where an arrow's words go (board units).
     label-x: float,
     label-y: float,
@@ -926,6 +930,15 @@ export struct BoardHandleData {
     x: float,
     y: float,
     kind: int,
+}
+
+// A line what moves now shares with what is around (board units): upright at x = `at`
+// or level at y = `at`, from `from` to `to` along it.
+export struct BoardGuideData {
+    vertical: bool,
+    at: float,
+    from: float,
+    to: float,
 }
 
 // A note found by Quick open or search.

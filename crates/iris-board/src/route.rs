@@ -21,9 +21,19 @@ pub const STUB: f32 = 24.0;
 /// How round an arrow's round corners are.
 pub const ROUND: f32 = 14.0;
 
-/// Which way an end leaves its item (none when it is free).
+/// How far apart two ends facing each other may be across and still be drawn in line.
+pub const STRAIGHTEN: f32 = 24.0;
+/// The room between arrows that share a side's middle, spread along it.
+pub const PORT: f32 = 22.0;
+/// How deep an arrow tied to an arrow is followed (ties never chain, but a file might).
+const PROFONDEUR: u8 = 2;
+
+/// Which way an end leaves its box (none when it is free or on an arrow).
 pub fn normal(board: &Board, e: &End) -> Option<Pt> {
     let it = board.get(e.item?)?;
+    if !it.kind.boxed() {
+        return None;
+    }
     let (u, v) = (e.x, e.y);
     let sides = [
         (v * it.h, Pt::new(0.0, -1.0)),
@@ -37,16 +47,158 @@ pub fn normal(board: &Board, e: &End) -> Option<Pt> {
         .map(|(_, n)| *n)
 }
 
-/// An arrow's two ends on the board, each with the way it leaves its item.
+/// Where an end is, `depth` arrows deep: on a box, along an arrow (its line found one
+/// level down; past the depth, between its ends), or free.
+pub fn end_point_at(board: &Board, e: &End, depth: u8) -> Pt {
+    match e.item.and_then(|id| board.get(id)) {
+        Some(it) if it.kind == crate::Kind::Connector => {
+            if depth < PROFONDEUR {
+                curve_d(board, it, depth + 1).at(e.x)
+            } else {
+                let a = it
+                    .from
+                    .map_or(Pt::default(), |x| end_point_at(board, &x, depth));
+                let b = it
+                    .to
+                    .map_or(Pt::default(), |x| end_point_at(board, &x, depth));
+                a.lerp(b, e.x)
+            }
+        }
+        Some(it) if it.kind.boxed() => it.at(e.x, e.y),
+        _ => Pt::new(e.x, e.y),
+    }
+}
+
+/// The side's middle an end sits on, as its index in `SIDES`.
+fn milieu(e: &End) -> Option<usize> {
+    crate::SIDES
+        .iter()
+        .position(|(u, v)| (e.x - u).abs() < 1e-4 && (e.y - v).abs() < 1e-4)
+}
+
+/// An end at a side's middle that other arrows share: moved along the side so each has
+/// its own place, in the order of where they come from, so none cross. The file keeps
+/// the middle: an arrow taken away gives the others back their room.
+fn port(board: &Board, it: &Item, e: &End, other: Pt, depth: u8) -> Option<Pt> {
+    let cible = e
+        .item
+        .and_then(|i| board.get(i))
+        .filter(|c| c.kind.boxed())?;
+    let cote = milieu(e)?;
+    let le_long = cote % 2 == 0; // top and bottom: along x
+    let mut groupe: Vec<(f32, u64)> = Vec::new();
+    for c in &board.items {
+        if c.kind != crate::Kind::Connector {
+            continue;
+        }
+        for (mien, autre) in [(c.from, c.to), (c.to, c.from)] {
+            let (Some(m), Some(a)) = (mien, autre) else {
+                continue;
+            };
+            if m.item == e.item && milieu(&m) == Some(cote) {
+                let q = if c.id == it.id {
+                    other
+                } else {
+                    end_point_at(board, &a, PROFONDEUR.max(depth + 1))
+                };
+                groupe.push((if le_long { q.x } else { q.y }, c.id));
+            }
+        }
+    }
+    if groupe.len() < 2 {
+        return None;
+    }
+    groupe.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let rang = groupe.iter().position(|(_, id)| *id == it.id)? as f32;
+    let n = groupe.len() as f32;
+    let longueur = if le_long { cible.w } else { cible.h };
+    let pas = PORT.min(longueur * 0.8 / n);
+    let decalage = (rang - (n - 1.0) / 2.0) * pas;
+    let m = cible.at(e.x, e.y);
+    Some(if le_long {
+        Pt::new(m.x + decalage, m.y)
+    } else {
+        Pt::new(m.x, m.y + decalage)
+    })
+}
+
+/// Two ends at the middles of sides that face each other, nearly in line: drawn in
+/// line, at a place both sides share, so a small misalignment never bends the arrow.
+fn aligner(board: &Board, from: &End, to: &End, a: Pt, b: Pt) -> Option<(Pt, Pt)> {
+    let ia = from
+        .item
+        .and_then(|i| board.get(i))
+        .filter(|c| c.kind.boxed())?;
+    let ib = to
+        .item
+        .and_then(|i| board.get(i))
+        .filter(|c| c.kind.boxed())?;
+    let (sa, sb) = (milieu(from)?, milieu(to)?);
+    if (sa + 2) % 4 != sb || ia.id == ib.id {
+        return None;
+    }
+    let vertical = sa % 2 == 0; // top facing bottom: the arrow runs up or down
+    let (ra, rb) = (ia.rect(), ib.rect());
+    if vertical {
+        let (lo, hi) = (ra.x.max(rb.x), ra.right().min(rb.right()));
+        if (a.x - b.x).abs() > STRAIGHTEN || lo > hi {
+            return None;
+        }
+        let x = ((a.x + b.x) / 2.0).clamp(lo, hi);
+        Some((Pt::new(x, a.y), Pt::new(x, b.y)))
+    } else {
+        let (lo, hi) = (ra.y.max(rb.y), ra.bottom().min(rb.bottom()));
+        if (a.y - b.y).abs() > STRAIGHTEN || lo > hi {
+            return None;
+        }
+        let y = ((a.y + b.y) / 2.0).clamp(lo, hi);
+        Some((Pt::new(a.x, y), Pt::new(b.x, y)))
+    }
+}
+
+/// An arrow's two ends on the board, each with the way it leaves its box.
 pub fn ends(board: &Board, it: &Item) -> (Pt, Option<Pt>, Pt, Option<Pt>) {
+    ends_d(board, it, 0)
+}
+
+fn ends_d(board: &Board, it: &Item, depth: u8) -> (Pt, Option<Pt>, Pt, Option<Pt>) {
     let from = it.from.unwrap_or_default();
     let to = it.to.unwrap_or_default();
-    (
-        board.end_point(&from),
-        normal(board, &from),
-        board.end_point(&to),
-        normal(board, &to),
-    )
+    let (mut a, mut b) = (
+        end_point_at(board, &from, depth),
+        end_point_at(board, &to, depth),
+    );
+    let (pa, pb) = (
+        port(board, it, &from, b, depth),
+        port(board, it, &to, a, depth),
+    );
+    if pa.is_none() && pb.is_none() && it.points.is_empty() {
+        if let Some((x, y)) = aligner(board, &from, &to, a, b) {
+            a = x;
+            b = y;
+        }
+    }
+    if let Some(p) = pa {
+        a = p;
+    }
+    if let Some(p) = pb {
+        b = p;
+    }
+    (a, normal(board, &from), b, normal(board, &to))
+}
+
+/// Where along an arrow other arrows tie best (fractions of its length): its middle,
+/// and each point it goes through.
+pub fn anchors(board: &Board, it: &Item) -> Vec<f32> {
+    let c = curve(board, it);
+    let mut v = vec![0.5];
+    for p in through(board, it).iter().skip(1) {
+        let (t, _) = c.nearest(*p);
+        if t > 0.001 && t < 0.999 {
+            v.push(t);
+        }
+    }
+    v
 }
 
 /// Points in a row with the repeated ones and the ones in the middle of a straight run
@@ -142,7 +294,11 @@ pub fn orthogonal(a: Pt, na: Option<Pt>, points: &[Pt], b: Pt) -> Vec<Pt> {
 /// The points a straight or elbow arrow goes through, its ends included; a curved
 /// arrow's points to pass through.
 pub fn through(board: &Board, it: &Item) -> Vec<Pt> {
-    let (a, na, b, nb) = ends(board, it);
+    through_d(board, it, 0)
+}
+
+fn through_d(board: &Board, it: &Item, depth: u8) -> Vec<Pt> {
+    let (a, na, b, nb) = ends_d(board, it, depth);
     match it.way {
         Way::Elbow if it.points.is_empty() => auto_elbow(a, na, b, nb),
         Way::Elbow => orthogonal(a, na, &it.points, b),
@@ -226,10 +382,14 @@ pub fn smooth(pts: &[Pt], na: Option<Pt>, nb: Option<Pt>) -> Curve {
 
 /// The arrow's line on the board.
 pub fn curve(board: &Board, it: &Item) -> Curve {
-    let pts = through(board, it);
+    curve_d(board, it, 0)
+}
+
+fn curve_d(board: &Board, it: &Item, depth: u8) -> Curve {
+    let pts = through_d(board, it, depth);
     match it.way {
         Way::Curved => {
-            let (_, na, _, nb) = ends(board, it);
+            let (_, na, _, nb) = ends_d(board, it, depth);
             smooth(&pts, na, nb)
         }
         _ if it.rounded => rounded(&pts, ROUND),
@@ -259,6 +419,15 @@ pub fn midpoints(board: &Board, it: &Item) -> Vec<Pt> {
                 .collect()
         }
         _ => pts.windows(2).map(|w| w[0].lerp(w[1], 0.5)).collect(),
+    }
+}
+
+/// Where along an arrow its words stand: near its start, halfway, near its end.
+pub fn label_at(it: &Item) -> f32 {
+    match it.align {
+        crate::Align::Left => 0.2,
+        crate::Align::Center => 0.5,
+        crate::Align::Right => 0.8,
     }
 }
 
@@ -353,7 +522,7 @@ pub fn drawn(board: &Board, it: &Item) -> Drawn {
     if it.start != Head::None {
         heads.push(head(it.start, c.start, c.direction(false), s));
     }
-    let label = c.midpoint();
+    let label = c.at(label_at(it));
     let line = shortened(c, trim(it.start, s), trim(it.end, s));
     let mut bounds = line.bounds();
     for h in &heads {
@@ -407,6 +576,96 @@ mod tests {
         arrow.way = way;
         b.items.push(arrow);
         (b, k)
+    }
+
+    /// A box above another, a few units off, an arrow from the bottom of one to the top
+    /// of the other.
+    fn decales() -> (Board, u64) {
+        let mut b = Board::default();
+        let haut = b.take_id();
+        b.items.push(Item::shape(
+            haut,
+            Shape::Rect,
+            Rect::new(0.0, 0.0, 100.0, 50.0),
+        ));
+        let bas = b.take_id();
+        b.items.push(Item::shape(
+            bas,
+            Shape::Rect,
+            Rect::new(7.0, 150.0, 100.0, 50.0),
+        ));
+        let k = b.take_id();
+        b.items.push(Item::connector(
+            k,
+            End::on(haut, 0.5, 1.0),
+            End::on(bas, 0.5, 0.0),
+        ));
+        (b, k)
+    }
+
+    #[test]
+    fn a_small_misalignment_is_drawn_straight() {
+        let (b, k) = decales();
+        let (a, _, z, _) = ends(&b, b.get(k).unwrap());
+        assert_eq!(a.x, z.x);
+        assert_eq!((a.y, z.y), (50.0, 150.0));
+        // Too far apart across: left as it is.
+        let mut b = b;
+        b.items[1].x = 60.0;
+        let (a, _, z, _) = ends(&b, b.get(k).unwrap());
+        assert_ne!(a.x, z.x);
+    }
+
+    #[test]
+    fn arrows_sharing_a_middle_take_places_of_their_own() {
+        let (mut b, k) = decales();
+        let haut = b.items[0].id;
+        let x = b.take_id();
+        b.items.push(Item::shape(
+            x,
+            Shape::Rect,
+            Rect::new(300.0, 150.0, 100.0, 50.0),
+        ));
+        let k2 = b.take_id();
+        b.items.push(Item::connector(
+            k2,
+            End::on(haut, 0.5, 1.0),
+            End::on(x, 0.5, 0.0),
+        ));
+        let (a1, _, _, _) = ends(&b, b.get(k).unwrap());
+        let (a2, _, _, _) = ends(&b, b.get(k2).unwrap());
+        assert_eq!(a1.y, 50.0);
+        assert_eq!(a2.y, 50.0);
+        // The one going right leaves further right.
+        assert!(a2.x > a1.x, "{a1:?} {a2:?}");
+        assert!((a1.x + a2.x) / 2.0 - 50.0 < 0.01);
+    }
+
+    #[test]
+    fn an_arrow_ties_to_another_and_follows_it() {
+        let (mut b, k) = decales();
+        let x = b.take_id();
+        b.items.push(Item::shape(
+            x,
+            Shape::Rect,
+            Rect::new(300.0, 75.0, 100.0, 50.0),
+        ));
+        // Dropped near the first arrow's middle: tied there.
+        let milieu = curve(&b, b.get(k).unwrap()).midpoint();
+        let e = b.attach(Pt::new(milieu.x + 3.0, milieu.y + 2.0), 12.0, &[]);
+        assert_eq!(e.item, Some(k));
+        assert_eq!(e.x, 0.5);
+        let k2 = b.take_id();
+        b.items.push(Item::connector(k2, End::on(x, 0.0, 0.5), e));
+        let (_, _, z, nz) = ends(&b, b.get(k2).unwrap());
+        assert!(z.distance(milieu) < 0.01);
+        assert_eq!(nz, None);
+        // Nothing ties to an arrow that is itself tied to an arrow.
+        let ailleurs = curve(&b, b.get(k2).unwrap()).midpoint();
+        assert_ne!(b.attach(ailleurs, 6.0, &[]).item, Some(k2));
+        // The first arrow gone, the one tied to it goes too.
+        b.remove(&[b.items[0].id]);
+        assert!(b.get(k).is_none() && b.get(k2).is_none());
     }
 
     #[test]

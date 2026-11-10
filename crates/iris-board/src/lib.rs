@@ -17,6 +17,8 @@
 
 pub mod geom;
 pub mod route;
+pub mod snap;
+pub mod svg;
 
 pub use geom::{Curve, Pt, Rect};
 use serde::{Deserialize, Serialize};
@@ -256,8 +258,45 @@ impl Align {
     }
 }
 
-/// An arrow's end: tied to an item, at `(x, y)` as fractions of its box (0 to 1), or
-/// free, at `(x, y)` on the board.
+/// Where the words stand from top to bottom. `Auto` is the kind's own: a shape's in its
+/// middle, the others' at the top.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VAlign {
+    #[default]
+    Auto,
+    Top,
+    Middle,
+    Bottom,
+}
+
+impl VAlign {
+    /// 0 top, 1 middle, 2 bottom, `Auto` resolved for `kind`.
+    pub fn resolved(self, kind: Kind) -> usize {
+        match self {
+            VAlign::Top => 0,
+            VAlign::Middle => 1,
+            VAlign::Bottom => 2,
+            VAlign::Auto if kind == Kind::Shape => 1,
+            VAlign::Auto => 0,
+        }
+    }
+
+    pub fn from_index(i: usize) -> VAlign {
+        match i {
+            0 => VAlign::Top,
+            1 => VAlign::Middle,
+            _ => VAlign::Bottom,
+        }
+    }
+}
+
+fn is_auto(v: &VAlign) -> bool {
+    *v == VAlign::Auto
+}
+
+/// An arrow's end: tied to an item, at `(x, y)` as fractions of its box (0 to 1); tied
+/// to another arrow, `x` the fraction of its length; or free, at `(x, y)` on the board.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct End {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -319,7 +358,10 @@ pub struct Item {
     pub bold: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub italic: bool,
+    /// Across: an arrow's words at its start, middle or end.
     pub align: Align,
+    #[serde(skip_serializing_if = "is_auto")]
+    pub valign: VAlign,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<End>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -359,6 +401,7 @@ impl Default for Item {
             bold: false,
             italic: false,
             align: Align::Center,
+            valign: VAlign::Auto,
             from: None,
             to: None,
             way: Way::Straight,
@@ -527,17 +570,18 @@ impl Board {
             }
         }
         self.next = self.next.max(max + 1);
-        let ids: std::collections::HashSet<u64> = self.items.iter().map(|i| i.id).collect();
-        let boxes: std::collections::HashMap<u64, Rect> = self
+        // What an end may tie to: a box, or another arrow.
+        let cibles: std::collections::HashSet<u64> = self
             .items
             .iter()
-            .filter(|i| i.kind.boxed())
-            .map(|i| (i.id, i.rect()))
+            .filter(|i| i.kind.boxed() || i.kind == Kind::Connector)
+            .map(|i| i.id)
             .collect();
         for it in &mut self.items {
+            let propre = it.id;
             for end in [&mut it.from, &mut it.to].into_iter().flatten() {
                 if let Some(id) = end.item {
-                    if !ids.contains(&id) || !boxes.contains_key(&id) {
+                    if !cibles.contains(&id) || id == propre {
                         end.item = None;
                     }
                 }
@@ -585,10 +629,7 @@ impl Board {
 
     /// Where an end is on the board.
     pub fn end_point(&self, e: &End) -> Pt {
-        match e.item.and_then(|id| self.get(id)) {
-            Some(it) => it.at(e.x, e.y),
-            None => Pt::new(e.x, e.y),
-        }
+        route::end_point_at(self, e, 0)
     }
 
     /// The box an item takes on the board, an arrow's and a stroke's included.
@@ -673,15 +714,69 @@ impl Board {
                 return End::on(it.id, u, v);
             }
         }
+        // On another arrow: at its middle or one of its points when close to them,
+        // anywhere along it otherwise. Only an arrow whose own ends are on boxes or free
+        // takes one, so ties never chain.
+        let mut meilleur: Option<(f32, u64, f32)> = None;
+        for it in self.items.iter().rev() {
+            if it.kind != Kind::Connector || except.contains(&it.id) || self.on_a_line(it) {
+                continue;
+            }
+            let c = route::curve(self, it);
+            let (t, d) = c.nearest(p);
+            if d > snap || meilleur.is_some_and(|(m, _, _)| m <= d) {
+                continue;
+            }
+            let mut t = t;
+            for repere in route::anchors(self, it) {
+                if c.at(repere).distance(p) <= snap {
+                    t = repere;
+                    break;
+                }
+            }
+            meilleur = Some((d, it.id, t));
+        }
+        if let Some((_, id, t)) = meilleur {
+            return End {
+                item: Some(id),
+                x: t.clamp(0.0, 1.0),
+                y: 0.0,
+            };
+        }
         End::free(p)
     }
 
-    /// Items removed, with the arrows tied to them.
+    /// An arrow with an end tied to another arrow.
+    pub fn on_a_line(&self, it: &Item) -> bool {
+        [it.from, it.to].into_iter().flatten().any(|e| {
+            e.item
+                .and_then(|i| self.get(i))
+                .is_some_and(|o| o.kind == Kind::Connector)
+        })
+    }
+
+    /// Items removed, with the arrows tied to them (and the arrows tied to those).
     pub fn remove(&mut self, ids: &[u64]) {
-        let tied = |e: &Option<End>| e.and_then(|e| e.item).is_some_and(|i| ids.contains(&i));
-        self.items.retain(|i| {
-            !ids.contains(&i.id) && !(i.kind == Kind::Connector && (tied(&i.from) || tied(&i.to)))
-        });
+        let mut partis: std::collections::HashSet<u64> = ids.iter().copied().collect();
+        loop {
+            let tied =
+                |e: &Option<End>| e.and_then(|e| e.item).is_some_and(|i| partis.contains(&i));
+            let encore: Vec<u64> = self
+                .items
+                .iter()
+                .filter(|i| {
+                    !partis.contains(&i.id)
+                        && i.kind == Kind::Connector
+                        && (tied(&i.from) || tied(&i.to))
+                })
+                .map(|i| i.id)
+                .collect();
+            if encore.is_empty() {
+                break;
+            }
+            partis.extend(encore);
+        }
+        self.items.retain(|i| !partis.contains(&i.id));
     }
 
     /// Items moved by `(dx, dy)`: their boxes, a stroke's points, a free end's place,
