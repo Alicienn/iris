@@ -21,6 +21,8 @@ pub mod unsubscribe;
 pub mod spam;
 
 pub use cid::inline_images;
-pub use parse::{attachment_bytes, parse, parse_with, strip_tags, InlinePart, Parsed};
+pub use parse::{
+    attachment_bytes, html_to_text, parse, parse_with, strip_tags, InlinePart, Parsed,
+};
 pub use sanitize::{sanitize, sanitize_with, Sanitized, Tracker, TrackerReason};
 pub use spam::{headers_say_spam, strip_marker, subject_is_tagged};

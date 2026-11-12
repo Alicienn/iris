@@ -17,8 +17,10 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
-/// How long a starting Iris has to open its server.
-const START_WAIT: Duration = Duration::from_secs(45);
+/// How long a starting Iris has to open its server. Under the 30 seconds assistants
+/// give a server to answer its first message: past that they report a timeout and
+/// never read why, so the bridge answers (that Iris did not come up) before they give up.
+const START_WAIT: Duration = Duration::from_secs(22);
 
 pub fn run(paths: &Paths) -> iris_types::Result<()> {
     let reglages = crate::settings::Settings::load(paths.settings());
@@ -133,7 +135,7 @@ fn relay(flux: TcpStream) -> std::io::Result<()> {
 fn unavailable(raison: &str) -> iris_types::Result<()> {
     eprintln!("iris mcp: {raison}");
     let entree = std::io::stdin().lock();
-    let sortie = std::io::stdout().lock();
+    let sortie = std::io::stdout();
     iris_mcp::serve(
         entree,
         sortie,

@@ -336,6 +336,136 @@ pub fn strip_tags(html: &str) -> String {
         .join(" ")
 }
 
+/// An HTML fragment as plain text that keeps its lines: a paragraph, a `<br>`, a list
+/// item or a table row each end a line, a list item starts with "- ", and what sits
+/// inside `<blockquote>` carries one "> " per level. What a reply quotes when the
+/// original has no plain-text part, so the quote reads as the message did.
+pub fn html_to_text(html: &str) -> String {
+    let mut lignes: Vec<String> = Vec::new();
+    let mut courante = String::new();
+    let mut profondeur = 0usize;
+    let mut profondeur_ligne = 0usize;
+    let mut ignore: Option<&'static str> = None;
+    let mut chars = html.chars().peekable();
+
+    fn finir(lignes: &mut Vec<String>, courante: &mut String, profondeur: usize) {
+        let texte = courante.split_whitespace().collect::<Vec<_>>().join(" ");
+        courante.clear();
+        let texte = decode_entities(&texte);
+        let prefixe = "> ".repeat(profondeur);
+        lignes.push(format!("{prefixe}{texte}").trim_end().to_string());
+    }
+
+    while let Some(c) = chars.next() {
+        if c != '<' {
+            if ignore.is_none() {
+                if courante.trim().is_empty() {
+                    profondeur_ligne = profondeur;
+                }
+                courante.push(c);
+            }
+            continue;
+        }
+        let mut balise = String::new();
+        for t in chars.by_ref() {
+            if t == '>' {
+                break;
+            }
+            balise.push(t);
+        }
+        let balise = balise.trim().to_ascii_lowercase();
+        let (ferme, nom) = match balise.strip_prefix('/') {
+            Some(reste) => (true, reste),
+            None => (false, balise.as_str()),
+        };
+        let nom: String = nom
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect();
+        if let Some(attendu) = ignore {
+            if ferme && nom == attendu {
+                ignore = None;
+            }
+            continue;
+        }
+        match nom.as_str() {
+            "style" | "script" | "head" if !ferme => {
+                ignore = Some(match nom.as_str() {
+                    "style" => "style",
+                    "script" => "script",
+                    _ => "head",
+                })
+            }
+            "br" => finir(&mut lignes, &mut courante, profondeur_ligne),
+            "blockquote" => {
+                if !courante.trim().is_empty() {
+                    finir(&mut lignes, &mut courante, profondeur_ligne);
+                }
+                profondeur = if ferme {
+                    profondeur.saturating_sub(1)
+                } else {
+                    profondeur + 1
+                };
+                profondeur_ligne = profondeur;
+            }
+            "p" | "div" | "tr" | "ul" | "ol" | "table" | "h1" | "h2" | "h3" | "h4" | "h5"
+            | "h6" | "pre" | "hr" => {
+                if !courante.trim().is_empty() {
+                    finir(&mut lignes, &mut courante, profondeur_ligne);
+                }
+                // A paragraph is set apart by a blank line.
+                if ferme && matches!(nom.as_str(), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
+                    lignes.push("> ".repeat(profondeur).trim_end().to_string());
+                }
+            }
+            "li" if !ferme => {
+                if !courante.trim().is_empty() {
+                    finir(&mut lignes, &mut courante, profondeur_ligne);
+                }
+                courante.push_str("- ");
+                profondeur_ligne = profondeur;
+            }
+            "li" => {
+                if !courante.trim().is_empty() {
+                    finir(&mut lignes, &mut courante, profondeur_ligne);
+                }
+            }
+            "td" | "th" if ferme => courante.push(' '),
+            _ => {}
+        }
+    }
+    if !courante.trim().is_empty() {
+        finir(&mut lignes, &mut courante, profondeur_ligne);
+    }
+
+    // No more than one blank line in a row, none at either end.
+    let mut sortie: Vec<String> = Vec::new();
+    for l in lignes {
+        let vide = l.trim_matches(|c| c == '>' || c == ' ').is_empty();
+        if vide
+            && sortie
+                .last()
+                .is_some_and(|d| d.trim_matches(|c| c == '>' || c == ' ').is_empty())
+        {
+            continue;
+        }
+        sortie.push(l);
+    }
+    while sortie
+        .last()
+        .is_some_and(|d| d.trim_matches(|c| c == '>' || c == ' ').is_empty())
+    {
+        sortie.pop();
+    }
+    while sortie
+        .first()
+        .is_some_and(|d| d.trim_matches(|c| c == '>' || c == ' ').is_empty())
+    {
+        sortie.remove(0);
+    }
+    sortie.join("\n")
+}
+
 /// Décode les entités les plus courantes. Les autres sont laissées telles quelles :
 /// un aperçu approximatif vaut mieux qu'une table de mille entrées.
 fn decode_entities(s: &str) -> String {
@@ -630,6 +760,19 @@ Content-Type: text/html\r\n\
         assert_eq!(p.subject, "");
         assert!(p.from.is_empty());
         assert_eq!(p.preview, "");
+    }
+
+    #[test]
+    fn html_to_text_keeps_lines_lists_and_quotes() {
+        let html = "<html><head><style>p{color:red}</style></head><body>\
+            <p>Hello,</p><p>Line one<br>Line two</p>\
+            <ul><li>First</li><li>Second</li></ul>\
+            <blockquote><p>Earlier:</p><blockquote>Oldest</blockquote></blockquote>\
+            </body></html>";
+        assert_eq!(
+            html_to_text(html),
+            "Hello,\n\nLine one\nLine two\n\n- First\n- Second\n> Earlier:\n>\n> > Oldest"
+        );
     }
 
     #[test]

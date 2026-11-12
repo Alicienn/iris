@@ -154,24 +154,44 @@ const INVALID_PARAMS: i64 = -32602;
 
 /// Serves one client until its input ends: reads a message per line, writes each
 /// answer as one line and flushes it.
+///
+/// A tool call runs on its own thread: one that waits on the network (a body to
+/// download, a message to send) must not hold up `ping`, `tools/list` or the next
+/// call, or the assistant sees timeouts on questions that were quick. Everything
+/// else is answered in order, as it is read.
 pub fn serve(
     reader: impl BufRead,
-    mut writer: impl Write,
+    writer: impl Write + Send,
     handler: &dyn Handler,
 ) -> io::Result<()> {
-    for ligne in reader.lines() {
-        let ligne = ligne?;
-        if ligne.trim().is_empty() {
-            continue;
-        }
-        if let Some(reponse) = handle_line(&ligne, handler) {
+    let writer = std::sync::Mutex::new(writer);
+    let repondre = |ligne: &str| -> io::Result<()> {
+        if let Some(reponse) = handle_line(ligne, handler) {
             let mut texte = reponse.to_string();
             texte.push('\n');
-            writer.write_all(texte.as_bytes())?;
-            writer.flush()?;
+            let mut w = writer.lock().unwrap_or_else(|e| e.into_inner());
+            w.write_all(texte.as_bytes())?;
+            w.flush()?;
         }
-    }
-    Ok(())
+        Ok(())
+    };
+    std::thread::scope(|s| {
+        for ligne in reader.lines() {
+            let ligne = ligne?;
+            if ligne.trim().is_empty() {
+                continue;
+            }
+            if ligne.contains("\"tools/call\"") {
+                let repondre = &repondre;
+                s.spawn(move || {
+                    let _ = repondre(&ligne);
+                });
+            } else {
+                repondre(&ligne)?;
+            }
+        }
+        Ok(())
+    })
 }
 
 /// The answer to one line, or nothing for a notification.

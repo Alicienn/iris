@@ -1042,3 +1042,12 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S56.4** Text placed across and down in boxes; several chosen outlined one by
       one, what a chosen frame carries outlined faintly, a count in the toolbar (7.16.0).
 - [x] **S56.5** A whiteboard exported as a PNG from its menu in the tree (7.16.0).
+
+## E57 — Fixes (7.16.1)
+
+- [x] **S57.1** A reply to an HTML-only message quotes it with its lines, lists and
+      earlier quotes (`iris_mime::html_to_text`) instead of one flattened line (7.16.1).
+- [x] **S57.2** The assistant's bridge answers within the clients' 30 s; tool calls run
+      concurrently and a body download times out at 25 s (7.16.1).
+- [x] **S57.3** The whiteboard ignores wheel steps while the middle button holds the
+      view, so it no longer slides sideways by itself (7.16.1).

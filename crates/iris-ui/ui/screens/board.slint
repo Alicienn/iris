@@ -803,7 +803,12 @@ export component BoardView inherits Rectangle {
             }
         }
         scroll-event(event) => {
-            root.molette(event, self.mouse-x, self.mouse-y);
+            // While the view is held by the middle button or the hand, the wheel does
+            // not move it too: some mice and drivers send sideways scroll steps for as
+            // long as the button is down, and the view slid off to the left by itself.
+            if (!root.panning) {
+                root.molette(event, self.mouse-x, self.mouse-y);
+            }
             accept
         }
     }

@@ -3,6 +3,13 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.16.1 — 2026-11-12
+
+### Fixed
+- Replying to a message sent as a web page keeps its paragraphs, lists and earlier quotes instead of one long line.
+- An assistant connected to Iris no longer times out when Iris has to start first, or while one slow request is under way.
+- Holding the middle button on a whiteboard no longer makes the view drift to the left.
+
 ## 7.16.0 — 2026-11-11
 
 ### New

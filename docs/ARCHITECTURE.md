@@ -2093,7 +2093,8 @@ per line. The tools are answered by the Iris that is running, not by that proces
   place shown, the bus for the mail).
 - **The bridge** (`mcp::bridge`) reads `cache/mcp-endpoint.json` (port, token, pid),
   connects, sends the token as its first line and relays bytes both ways. Iris not
-  running: it starts `iris --tray` detached and waits up to 45 s. The setting off: it
+  running: it starts `iris --tray` detached and waits up to 22 s (assistants give a server
+  30 s to answer, then report a timeout and never read why; 7.16.1). The setting off: it
   serves MCP itself with one tool, `iris_status`, that says where to turn it on. It
   runs before the log is installed (installing it would rotate the running Iris's log)
   and writes nothing but the protocol to its standard output.
@@ -2102,7 +2103,10 @@ per line. The tools are answered by the Iris that is running, not by that proces
   `settings.mcp_enabled` (*Settings › System*). A new random 32-byte token each start;
   a connection that does not send it within 10 s is closed. Stopping removes the
   endpoint file and shuts every connection. Tools that wait on the network (a body to
-  download, a send) block their connection's thread on the application's runtime.
+  download, a send) block their own thread on the application's runtime: `serve` runs
+  each `tools/call` on a thread of its own (answers share one locked writer), so a slow
+  call never holds up `ping`, `tools/list` or the next call, and a body download gives
+  up after 25 s (7.16.1).
 - **The protocol** (`iris-mcp`) knows nothing of Iris: `initialize`, `ping`,
   `tools/list`, `tools/call`, empty `resources/*` and `prompts/list`, batches, and
   notifications answered with nothing. A tool's failure is a result with `isError`, so

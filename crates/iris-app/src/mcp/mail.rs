@@ -1010,7 +1010,19 @@ fn raw_body(ctx: &Ctx, m: &StoredMessage, fetch: bool) -> Result<Option<Vec<u8>>
     if !fetch {
         return Ok(None);
     }
-    let recu = ctx.runtime.block_on(ctx.services.engine.fetch_body(m.id))?;
+    // A mailbox that does not answer must not hold the assistant until it gives up.
+    let recu = ctx
+        .runtime
+        .block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(25),
+                ctx.services.engine.fetch_body(m.id),
+            )
+            .await
+        })
+        .map_err(|_| {
+            ToolError::new("The mailbox did not send the message in time. Try again.")
+        })??;
     Ok(ctx.services.blobs.get(recu.blob)?)
 }
 

@@ -724,7 +724,7 @@ impl SendService {
                     p.text_body.clone().unwrap_or_else(|| {
                         p.html_body
                             .as_ref()
-                            .map(|h| iris_mime::strip_tags(&h.html))
+                            .map(|h| iris_mime::html_to_text(&h.html))
                             .unwrap_or_default()
                     })
                 })
