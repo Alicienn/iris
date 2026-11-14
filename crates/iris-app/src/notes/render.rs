@@ -819,11 +819,11 @@ pub fn render(
             d.title = target.as_str().into();
             d.rich = slint::StyledText::from_plain_text(&format!("⧉ {target}"));
             if is_picture(target) {
-                if let Some(image) = dir
+                if let Some((pixels, _, _)) = dir
                     .and_then(|d| embedded_file(target, d))
                     .and_then(|p| picture(&p))
                 {
-                    d.picture = image;
+                    d.picture = resampled(&pixels, pixels.width(), pixels.height());
                     d.has_picture = true;
                 }
             }
