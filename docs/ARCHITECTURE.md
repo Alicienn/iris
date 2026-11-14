@@ -1170,8 +1170,9 @@ it leaves the table for a line under it. A `+` on the bottom and right borders a
 row or a column (`edit::table_grow`, `Action::AjouterLigne`, `AjouterColonne`). A
 heading's `#` are the one start mark the cursor may go into: they show dimmed while it
 is at the words' start or among them, and Backspace there takes one away.
-Ctrl+Left and Ctrl+Right go to the line's start and end (a list item's, past its
-sign), then the line beside's. Right just after typing (`Editeur::apres_frappe`) steps
+Ctrl+Left and Ctrl+Right go word by word (`saisie::mot_voisin`: Right to the word's
+end, Left to its start), a cell's edge stopping them in a table, then into the block
+beside (7.17.0; before, the line's start and end). Right just after typing (`Editeur::apres_frappe`) steps
 over the signs that close the mark typed in (`saisie::fermantes`); any other move
 clears it, so the signs can still be gone into. A mark put on a selection running
 over several lines goes on each line's words (`blocs::marquer`): the break selected
@@ -1180,7 +1181,30 @@ A right-click in the note opens `NotesEditMenu`: a picture's (copy it, its link,
 size back, open, show, remove), the selection's (cut, copy, paste, the marks, colour,
 link, a task) or the place's (paste, select all). A picture keeps its proportions
 whatever is asked (a width, or a box `|300x200` it fits in) and resizes from anywhere
-along its left and right edges. Each tab keeps how far its note was scrolled
+along its left and right edges.
+
+**Tables, pictures, emojis** (7.17.0). A picture's own size is its pixels over the
+screen's scale, and it is resampled in Rust (`render::resampled`, Catmull-Rom) to the
+exact screen pixels it covers, so the software renderer draws it one to one: a
+screenshot's letters are never picked pixel by pixel. The decoded file is kept for the
+eight pictures used last (`dessin::SOURCES`) and each size drawn for 64
+(`dessin::IMAGES`). While an edge is carried, `Editeur::vive` lays the block out again
+at the width carried (the note's text untouched until it is let go), so the picture
+and what is under it move as the pointer does. A table's right-click menu inserts and
+deletes rows and columns through `edit::table_change`, which writes the table back
+`| a | b |` a row (the header deleted, the first row takes its place; the last row or
+column deleted, the table goes). Its borders are drawn as one line per row and column
+edge, or, hidden (the `notes_table_borders` setting, shared), only the header's plate
+and a line under it. A cell being written shows the spaces typed at its end (only the
+one before the `|` is left out). Words never join a table's row: Backspace at the start
+of the line under one goes into its last cell (an empty line simply goes), Delete
+before or in one does nothing, and a selection deleted across a table's edge leaves
+what remains of each line on a line of its own (`remplacer_plage`). `:name` opens the
+emoji list (`complete::Trigger::Emoji`, from the `emojis` crate's shortcodes, skin tones
+offered once, never in code or maths), and a closing `:` makes a whole name its emoji
+(`edit::typographic`). Ctrl+Shift+V pastes the clipboard's text alone (in a cell, on
+one line). The title typed renames the note's tab at once; the file follows 700 ms
+after the last key, as before. Each tab keeps how far its note was scrolled
 (`Etat::defilements`, from the page's `content-y`), forgotten when the tab closes or
 shows another note. The words are laid out in Inter: the four files the window
 registers through `theme/tokens.slint` are registered with the editor's own fontique

@@ -24,7 +24,7 @@ use iris_notes::edit::{self, Enter, NoteEdit};
 use iris_notes::inline::{Colour, Palette};
 use iris_ui::{AppWindow, NoteBlockData, NoteFoundData, NoteSpaceData, NoteTreeRowData};
 use iris_vault::{EntryKind, Space, Vault, WriteOutcome};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -1219,8 +1219,27 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
                 return true;
             }
             let Some(note) = &e.note else { return false };
+            // Under a table, the words never join its last row: the cursor goes into
+            // its last cell, and an empty line simply goes.
+            let derniere_case = (i > 0 && note.blocks[i - 1].kind == BlockKind::Table).then(|| {
+                edit::table_cells(note.blocks[i - 1].content())
+                    .into_iter()
+                    .flatten()
+                    .last()
+                    .map_or(0, |(_, fin)| fin)
+            });
+            if let Some(fin) = derniere_case {
+                if !texte.trim().is_empty() {
+                    focaliser(f, e, i - 1, fin, fin);
+                    rendre(f, e, false);
+                    return true;
+                }
+            }
             match edit::join_with_previous(&note.blocks, i) {
-                Some(ed) => {
+                Some(mut ed) => {
+                    if let Some(fin) = derniere_case {
+                        ed.cursor = fin;
+                    }
                     retenir(e, true);
                     appliquer(f, e, ed, true, None);
                     true
@@ -1233,6 +1252,11 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
                 return false;
             }
             let Some(note) = &e.note else { return false };
+            // A table's rows never take the line after them, nor a line its table.
+            let table_apres = note.blocks[i + 1].kind == BlockKind::Table;
+            if kind == BlockKind::Table || (table_apres && !texte.trim().is_empty()) {
+                return true;
+            }
             match edit::join_with_previous(&note.blocks, i + 1) {
                 Some(ed) => {
                     retenir(e, true);
@@ -1729,6 +1753,7 @@ fn candidats(
             .collect(),
         Trigger::Command { query, .. } => c::command_candidates(query, 8),
         Trigger::Colour { query, .. } => c::colour_candidates(query),
+        Trigger::Emoji { query, .. } => c::emoji_candidates(query, 8),
         Trigger::Block { query, .. } => {
             let mut liste = c::block_candidates(query);
             // The space's templates, filled in for this note.
@@ -1811,11 +1836,16 @@ fn apres_curseur(f: &AppWindow, e: &mut Etat) {
         // LaTeX's commands are offered in maths only: a `$$` block, or after a `$`
         // opened on the line and not closed yet, spaces between or not.
         let kind = contenu(e, block).map(|(k, _)| k);
-        iris_notes::complete::trigger_at(&texte, cursor).filter(|t| {
-            !matches!(t, iris_notes::complete::Trigger::Command { .. })
-                || kind
-                    .as_ref()
-                    .is_some_and(|k| maths_ouvertes(k, &texte, cursor))
+        iris_notes::complete::trigger_at(&texte, cursor).filter(|t| match t {
+            iris_notes::complete::Trigger::Command { .. } => kind
+                .as_ref()
+                .is_some_and(|k| maths_ouvertes(k, &texte, cursor)),
+            // Emojis in words only: never in code or maths.
+            iris_notes::complete::Trigger::Emoji { .. } => !kind.as_ref().is_some_and(|k| {
+                matches!(k, BlockKind::Code { .. } | BlockKind::Math)
+                    || maths_ouvertes(k, &texte, cursor)
+            }),
+            _ => true,
         })
     };
     match declencheur {
@@ -2234,17 +2264,8 @@ fn taille_image(f: &AppWindow, e: &mut Etat, i: usize, largeur: Option<f32>) {
     let Some((BlockKind::Embed { target }, texte)) = contenu(e, i) else {
         return;
     };
-    let mut parties: Vec<String> = target.split('|').map(|p| p.trim().to_string()).collect();
-    let nom = parties.remove(0);
     // A width (`320`) or a box (`300x200`) given before: the new width replaces it.
-    parties.retain(|p| {
-        p.parse::<f32>().is_err() && editeur::dessin::boite_demandee(&format!("x|{p}")).is_none()
-    });
-    parties.insert(0, nom);
-    if let Some(l) = largeur {
-        parties.push(format!("{}", l.round() as i64));
-    }
-    let nouveau = parties.join("|");
+    let nouveau = editeur::dessin::avec_largeur(&target, largeur);
     let ligne = texte.replacen(&format!("[[{target}]]"), &format!("[[{nouveau}]]"), 1);
     if ligne == texte {
         return;
@@ -4293,6 +4314,20 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     {
         let faible = f.as_weak();
         f.on_note_title_edited(move |nom| {
+            // The tab says the title as it is typed, before the file is renamed.
+            if let Some(f) = faible.upgrade() {
+                let actif = f.get_notes_tab_active();
+                let onglets = f.get_notes_tabs();
+                if let Some(mut ligne) = usize::try_from(actif)
+                    .ok()
+                    .and_then(|k| onglets.row_data(k).map(|l| (k, l)))
+                {
+                    if !nom.trim().is_empty() && ligne.1.title != nom {
+                        ligne.1.title = nom.clone();
+                        onglets.set_row_data(ligne.0, ligne.1);
+                    }
+                }
+            }
             let faible = faible.clone();
             // The note whose title is typed: another opened meanwhile is not renamed.
             let note = ETAT.with(|e| {

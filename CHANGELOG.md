@@ -3,6 +3,24 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.17.0 — 2026-11-14
+
+### New
+- Type `:` and a name in a note (`:tada`) to pick an emoji, or close the name (`:tada:`).
+- Right-click a table to insert or delete a row or a column.
+- Tables show their borders; hide or show them from a table's right-click menu.
+- Ctrl+Shift+V pastes as plain text in notes, also in the right-click menu.
+
+### Improved
+- A picture resizes as you drag its edge, not only once you let go.
+- Pasted screenshots stay sharp, shown at their real size.
+- Ctrl+Left and Ctrl+Right move word by word in notes.
+- A note's tab shows its new title as you type it.
+
+### Fixed
+- A space typed at the end of a table cell shows at once.
+- Deleting in or around a table no longer pulls the text below into it.
+
 ## 7.16.1 — 2026-11-12
 
 ### Fixed

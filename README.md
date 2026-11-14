@@ -223,10 +223,15 @@ them; an Obsidian vault opens as it is.
   heading's `#` show, dimmed, when the cursor is at its start.
 - **Tables** are written as a grid: `Tab` goes to the next cell, `Enter` adds a row
   (on an empty last row, it leaves the table), the `+` on its edges add a row or a
-  column.
-- **Pictures** keep their proportions; drag their left or right edge to resize them.
+  column. Right-click a cell to insert or delete a row or a column, or to hide or show
+  the borders of every table.
+- **Pictures** keep their proportions and stay sharp (a screenshot shows at its own
+  size, pixel for pixel); drag their left or right edge to resize them as you watch.
+- **Emojis**: type `:` and a name (`:tada`) and pick one, or close it (`:tada:`).
 - **Right-click** selected words to format, copy or make them a task, or a picture to
-  copy it, open it or put it back to its size.
+  copy it, open it or put it back to its size. `Ctrl`+`Shift`+`V` pastes the words
+  alone, without their formatting.
+- The note's **title** renames its tab as you type it.
 - **Maths** in LaTeX, drawn as in a book, with `Tab` shortcuts (`//` a fraction, `sq` a
   root, `mat2`…).
 - **Links** between notes (`[[Note]]`, `@Note`), renamed everywhere when a note moves;
@@ -281,7 +286,7 @@ them; an Obsidian vault opens as it is.
 - **Flashcards** (`Question :: Answer`), revised with spaced repetition.
 - **Tabs**, each back where you left it, a note **beside** another (`Ctrl`+`\`),
   reading mode (`Ctrl`+`R`), focus mode (`F11`), version history.
-- `Ctrl`+`←` / `Ctrl`+`→` go to the line's start or end; `→` right after typing a mark
+- `Ctrl`+`←` / `Ctrl`+`→` go to the start of the word or its end; `→` right after typing a mark
   steps out of it (`**word**|`).
 - **With the rest of Iris**: links to a conversation, an event or a task; a checkbox
   made a task stays ticked with it.
@@ -368,7 +373,8 @@ over a choice made before it arrived.
 | `Escape` | Close, leave full screen, a search or a selection |
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | Notes: new / open / search |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | Notes: new tab / close / next tab |
-| `Ctrl`+`←` / `Ctrl`+`→` | Notes: the line's start / end |
+| `Ctrl`+`←` / `Ctrl`+`→` | Notes: a word's start / end |
+| `Ctrl`+`Shift`+`V` | Notes: paste as plain text |
 | `V` `H` `N` `S` `T` `A` `P` `F` | Whiteboard: choose, move the view, sticky note, shape, text, arrow, pen, frame (`R` a square, `O` an ellipse) |
 | `Ctrl`+`D` / `Ctrl`+`]` / `Ctrl`+`[` / `Ctrl`+`L` | Whiteboard: duplicate / to the front / to the back / lock |
 | `Ctrl`+`0` / `Ctrl`+`+` / `Ctrl`+`-` / `Shift`+`1` | Whiteboard: 100 % / zoom in / out / everything |

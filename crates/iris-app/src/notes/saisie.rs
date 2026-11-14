@@ -64,6 +64,11 @@ pub(super) struct Editeur {
     /// While a picture is carried: where it would go (the note's coordinates), or the
     /// rectangle it would take once resized.
     repere: Option<(f32, f32, f32, f32)>,
+    /// While a picture's edge is carried: its block and the width it is drawn at, the
+    /// note's text untouched until it is let go.
+    vive: Option<(usize, f32)>,
+    /// Tables are drawn with their borders (Settings, or a table's right-click menu).
+    pub bordures: bool,
     /// The last thing done was typing (or a mark put): the next Right may step over
     /// the signs that close it.
     apres_frappe: bool,
@@ -84,6 +89,8 @@ impl Editeur {
             glisse: None,
             clic: None,
             repere: None,
+            vive: None,
+            bordures: crate::settings::current().notes_table_borders,
             apres_frappe: false,
             modele: Rc::new(VecModel::default()),
         }
@@ -186,6 +193,7 @@ pub(super) fn vue(f: &AppWindow, e: &mut Etat, tout: bool) {
         couleurs: &couleurs,
         polices: &polices,
         dir: dir.as_deref(),
+        bordures: e.ed.bordures,
         formule: &formule,
         formule_bloc: &formule_bloc,
     };
@@ -206,13 +214,36 @@ pub(super) fn vue(f: &AppWindow, e: &mut Etat, tout: bool) {
     for (i, (b, num)) in note.blocks.iter().zip(&numeros).enumerate() {
         // The block written depends on where its cursor is (the mark it touches).
         let curseur = (actif == Some(i)).then_some(local_tete);
+        // A picture being resized is drawn at the width carried, as it goes.
+        let vive =
+            e.ed.vive
+                .filter(|(k, _)| *k == i)
+                .and_then(|(_, w)| match &b.kind {
+                    BlockKind::Embed { target } => {
+                        let t = dessin::avec_largeur(target, Some(w));
+                        let texte =
+                            b.text
+                                .replacen(&format!("[[{target}]]"), &format!("[[{t}]]"), 1);
+                        Some((
+                            block::Block {
+                                kind: BlockKind::Embed { target: t },
+                                text: texte,
+                            },
+                            w,
+                        ))
+                    }
+                    _ => None,
+                });
         let sig = signature(b, num)
             ^ curseur.map_or(0, |c| 0x9e37_79b9_7f4a_7c15 ^ (c as u64).rotate_left(29))
-            ^ u64::from(e.ed.largeur.to_bits()).rotate_left(17);
+            ^ u64::from(e.ed.largeur.to_bits()).rotate_left(17)
+            ^ vive.as_ref().map_or(0, |(_, w)| {
+                u64::from(w.to_bits()).rotate_left(41) ^ 0x5bd1_e995
+            });
         if !tout && e.ed.sigs.get(i) == Some(&sig) {
             continue;
         }
-        let bv = dessin::bloc(b, num, curseur, &cx);
+        let bv = dessin::bloc(vive.as_ref().map_or(b, |(v, _)| v), num, curseur, &cx);
         let d = donnees(&bv);
         if tout {
             e.ed.vue.push(bv);
@@ -470,6 +501,26 @@ fn texte_choisi(e: &Etat) -> Option<String> {
 fn remplacer_plage(f: &AppWindow, e: &mut Etat, a: usize, b: usize, texte: &str, curseur: usize) {
     let Some(note) = &e.note else { return };
     let (a, b) = (a.min(note.text.len()), b.min(note.text.len()));
+    // A selection running out of a table (or into one) never leaves the words beside
+    // it on a row of the table: what is left of each line stays on a line of its own.
+    let (ia, _) = block::locate(&note.blocks, a);
+    let (ib, _) = block::locate(&note.blocks, b);
+    let table = |k: usize| {
+        note.blocks
+            .get(k)
+            .is_some_and(|b| b.kind == BlockKind::Table)
+    };
+    let gauche = note.text[..a].rsplit('\n').next().unwrap_or("");
+    let droite = note.text[b..].split('\n').next().unwrap_or("");
+    let coupe = ia != ib
+        && (table(ia) || table(ib))
+        && !gauche.trim().is_empty()
+        && !droite.trim().is_empty();
+    let texte = if coupe {
+        std::borrow::Cow::Owned(format!("{texte}\n"))
+    } else {
+        std::borrow::Cow::Borrowed(texte)
+    };
     let t = format!("{}{texte}{}", &note.text[..a], &note.text[b..]);
     let blocs = blocs_de(&t);
     let (bloc, local) = block::locate(&blocs, curseur.min(t.len()));
@@ -660,20 +711,9 @@ fn fermantes(t: &str, k: usize) -> usize {
     p - k.min(t.len())
 }
 
-/// The line of a block's source around `local` (a block of several lines: each
-/// line's own), from `premiere` on the first line (past a hidden mark).
-fn ligne_autour(t: &str, local: usize, premiere: usize) -> (usize, usize) {
-    let local = local.min(t.len());
-    let debut = t[..local]
-        .rfind('\n')
-        .map_or(premiere.min(t.len()), |k| k + 1);
-    let fin = t[local..].find('\n').map_or(t.len(), |k| local + k);
-    (debut, fin)
-}
-
 /// Left or Right: a character, past a block's hidden mark to the block beside; with
-/// Ctrl, the line's start or end (a list item's, a heading's words'), then the line
-/// beside's. Right just after typing steps over the signs that close the mark typed
+/// Ctrl, a word: Right to the end of the word, Left to its start, then the block
+/// beside. Right just after typing steps over the signs that close the mark typed
 /// in (`**mot|**`): once, so they can still be gone into after. In a table, from cell
 /// to cell. The selection collapsed to its side, or grown (Shift).
 fn horizontal(f: &AppWindow, e: &mut Etat, gauche: bool, etendre: bool, par_mot: bool) {
@@ -699,30 +739,63 @@ fn horizontal(f: &AppWindow, e: &mut Etat, gauche: bool, etendre: bool, par_mot:
     let fin_du_bloc = |e: &Etat, j: usize| debut(e, j) + contenu(e, j).map_or(0, |(_, t)| t.len());
     let mut cible = None;
     if par_mot {
-        let (ls, le) = ligne_autour(&content, local, m);
+        // Word by word, as in any editor: Ctrl+Right to the end of the word, Ctrl+Left
+        // to its start; at the block's edge, into the one beside. In a table, a cell's
+        // edge stops it first.
+        let case = (kind == BlockKind::Table)
+            .then(|| {
+                edit::table_cells(&content)
+                    .into_iter()
+                    .flatten()
+                    .find(|(s, fin)| local >= *s && local <= *fin)
+            })
+            .flatten();
         cible = Some(if gauche {
-            if local > ls {
-                base + ls
-            } else if ls > m {
-                // The line above in the same block.
-                base + ligne_autour(&content, ls - 1, m).0
-            } else if i > 0 {
-                let avant = contenu(e, i - 1).map_or(String::new(), |(_, t)| t);
-                let fin = avant.len();
-                debut(e, i - 1) + ligne_autour(&avant, fin, marque(e, i - 1)).0
-            } else {
-                base + ls
+            let k = mot_voisin(&content, local, true).max(dur);
+            match case {
+                Some((s, _)) if local > s => base + k.max(s),
+                _ if local > dur && case.is_none() => base + k,
+                _ => {
+                    // At the block's start (or a cell's): the cell or block before.
+                    let cases: Vec<(usize, usize)> = if case.is_some() {
+                        edit::table_cells(&content).into_iter().flatten().collect()
+                    } else {
+                        Vec::new()
+                    };
+                    match cases
+                        .iter()
+                        .position(|(s, _)| Some(*s) == case.map(|c| c.0))
+                        .and_then(|k| k.checked_sub(1))
+                        .and_then(|k| cases.get(k))
+                    {
+                        Some(&(_, fin)) => base + fin,
+                        None if i > 0 => fin_du_bloc(e, i - 1),
+                        None => base + local,
+                    }
+                }
             }
-        } else if local < le {
-            base + le
-        } else if le < content.len() {
-            base + ligne_autour(&content, le + 1, m).1
-        } else if i + 1 < n_blocs {
-            let apres = contenu(e, i + 1).map_or(String::new(), |(_, t)| t);
-            let m2 = marque(e, i + 1);
-            debut(e, i + 1) + ligne_autour(&apres, m2, m2).1
         } else {
-            base + le
+            let k = mot_voisin(&content, local, false);
+            match case {
+                Some((_, fin)) if local < fin => base + k.min(fin),
+                _ if local < content.len() && case.is_none() => base + k,
+                _ => {
+                    let cases: Vec<(usize, usize)> = if case.is_some() {
+                        edit::table_cells(&content).into_iter().flatten().collect()
+                    } else {
+                        Vec::new()
+                    };
+                    match cases
+                        .iter()
+                        .position(|(_, fin)| Some(*fin) == case.map(|c| c.1))
+                        .and_then(|k| cases.get(k + 1))
+                    {
+                        Some(&(s, _)) => base + s,
+                        None if i + 1 < n_blocs => debut(e, i + 1) + marque(e, i + 1),
+                        None => base + local,
+                    }
+                }
+            }
         });
     } else if kind == BlockKind::Table {
         let cases: Vec<(usize, usize)> =
@@ -1094,6 +1167,19 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
             }
             return true;
         }
+        // The clipboard's words alone: no formatting, link or picture of its own.
+        "ctrl+shift+v" => {
+            let mut t = presse_papiers().replace("\r\n", "\n");
+            // In a table's cell, on one line: a break would cut the table.
+            if matches!(contenu(e, i), Some((BlockKind::Table, _))) {
+                t = t.trim().replace('\n', " ");
+            }
+            if !t.is_empty() {
+                let (a, b) = e.ed.bornes();
+                remplacer_plage(f, e, a, b, &t, a + t.len());
+            }
+            return true;
+        }
         "backspace" | "ctrl+backspace" => {
             if effacer_selection(f, e) {
                 return true;
@@ -1375,11 +1461,12 @@ pub(super) fn glisse(f: &AppWindow, e: &mut Etat, x: f32, y: f32) {
             x0,
             largeur,
         }) => {
-            if let Some((ox, oy, ow, oh)) = e.ed.vue.get(bloc).and_then(|b| b.objet) {
-                let w = taille_tiree(coin, x - x0, largeur, e.ed.largeur);
-                let h = oh * w / ow.max(1.0);
-                let x = if coin % 2 == 0 { ox + ow - w } else { ox };
-                e.ed.repere = Some((x, e.ed.ys[bloc] + oy, w, h));
+            // The picture itself drawn at the width carried, the blocks under it
+            // following, as it goes.
+            let w = taille_tiree(coin, x - x0, largeur, e.ed.largeur).round();
+            if e.ed.vive != Some((bloc, w)) {
+                e.ed.vive = Some((bloc, w));
+                vue(f, e, false);
                 montrer(f, e);
             }
         }
@@ -1446,12 +1533,14 @@ pub(super) fn lache(f: &AppWindow, e: &mut Etat, x: f32, y: f32) {
             x0,
             largeur,
         }) => {
+            e.ed.vive = None;
             let w = taille_tiree(coin, x - x0, largeur, e.ed.largeur).round();
             if (w - largeur).abs() >= 1.0 {
                 super::largeur_image(f, e, bloc, w);
-            } else {
-                montrer(f, e);
             }
+            // Drawn from its text again (unchanged when the width came back).
+            vue(f, e, false);
+            montrer(f, e);
         }
         _ => {
             if repere.is_some() {
@@ -1524,6 +1613,11 @@ pub(super) fn menu(f: &AppWindow, e: &mut Etat, x: f32, y: f32, wx: f32, wy: f32
         }
     };
     super::fermer_popups(f, e);
+    // In a table: its rows and columns, and its borders.
+    let (it, _) = situer(e, e.ed.tete);
+    let table = genre != "image" && matches!(contenu(e, it), Some((BlockKind::Table, _)));
+    f.set_note_edit_menu_table(table);
+    f.set_note_edit_menu_borders(e.ed.bordures);
     f.set_note_edit_menu_kind(genre.into());
     f.set_note_edit_menu_x(wx);
     f.set_note_edit_menu_y(wy);
@@ -1601,6 +1695,37 @@ pub(super) fn menu_choisi(f: &AppWindow, e: &mut Etat, action: &str) {
             if image.is_some() {
                 sur_objet(f, e, i, "delete", "");
             }
+        }
+        "paste-plain" => {
+            touche_editeur(f, e, "ctrl+shift+v");
+        }
+        "table-row-above"
+        | "table-row-below"
+        | "table-delete-row"
+        | "table-column-left"
+        | "table-column-right"
+        | "table-delete-column" => {
+            let change = match action {
+                "table-row-above" => edit::TableChange::RowAbove,
+                "table-row-below" => edit::TableChange::RowBelow,
+                "table-delete-row" => edit::TableChange::DeleteRow,
+                "table-column-left" => edit::TableChange::ColumnLeft,
+                "table-column-right" => edit::TableChange::ColumnRight,
+                _ => edit::TableChange::DeleteColumn,
+            };
+            let (i, c) = situer(e, e.ed.tete);
+            if let Some((BlockKind::Table, t)) = contenu(e, i) {
+                if let Some(r) = edit::table_change(&t, c, change) {
+                    super::remplacer(f, e, i, &r.text, r.cursor, r.cursor);
+                }
+            }
+        }
+        "table-borders" => {
+            e.ed.bordures = !e.ed.bordures;
+            let on = e.ed.bordures;
+            crate::settings::update(|s| s.notes_table_borders = on);
+            vue(f, e, true);
+            montrer(f, e);
         }
         // A mark, a colour, a link: as the bubble over the words puts them.
         "bold" | "italic" | "underline" | "strike" | "highlight" | "code" | "colour"
@@ -1734,10 +1859,13 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_and_an_arrow_go_to_the_line_s_ends() {
-        assert_eq!(ligne_autour("- un item", 5, 2), (2, 9));
-        assert_eq!(ligne_autour("a\nbc\nd", 3, 0), (2, 4));
-        assert_eq!(ligne_autour("a\nbc\nd", 0, 0), (0, 1));
+    fn ctrl_and_an_arrow_go_word_by_word() {
+        // Right: to the end of the word, not of the line.
+        assert_eq!(mot_voisin("un item ici", 0, false), 2);
+        assert_eq!(mot_voisin("un item ici", 2, false), 7);
+        // Left: to the word's start.
+        assert_eq!(mot_voisin("un item ici", 7, true), 3);
+        assert_eq!(mot_voisin("un item ici", 3, true), 0);
     }
 
     #[test]

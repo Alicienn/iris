@@ -163,6 +163,9 @@ pub struct Settings {
     /// A formula drawn under the cursor while it is typed.
     #[serde(default = "vrai")]
     pub notes_math_preview: bool,
+    /// A table's borders drawn in notes (off: only the header's plate shows).
+    #[serde(default = "vrai")]
+    pub notes_table_borders: bool,
     /// The notes open in tabs (`<space folder>|<path>`), in order.
     #[serde(default)]
     pub notes_tabs: Vec<String>,
@@ -273,6 +276,7 @@ impl Default for Settings {
             notes_spaces: Vec::new(),
             notes_last: String::new(),
             notes_math_preview: true,
+            notes_table_borders: true,
             notes_tabs: Vec::new(),
             sheet_chart_panel_folded: false,
             text_size: 100,
@@ -376,6 +380,7 @@ pub const SHARED: &[&str] = &[
     "home_at_startup",
     "accent",
     "notes_math_preview",
+    "notes_table_borders",
     "oauth",
     "triage",
 ];
@@ -564,6 +569,7 @@ mod tests {
             notes_spaces: vec!["D:\\Coffre".into()],
             notes_last: "D:\\Notes\\Cours|Analyse/Chapitre 1.md".into(),
             notes_math_preview: false,
+            notes_table_borders: false,
             notes_tabs: vec!["D:\\Notes\\Cours|Analyse/Chapitre 1.md".into()],
             sheet_chart_panel_folded: true,
             text_size: 115,

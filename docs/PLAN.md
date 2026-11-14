@@ -1051,3 +1051,17 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       concurrently and a body download times out at 25 s (7.16.1).
 - [x] **S57.3** The whiteboard ignores wheel steps while the middle button holds the
       view, so it no longer slides sideways by itself (7.16.1).
+
+## E58 — The note's editor, polished (7.17.0)
+
+- [x] **S58.1** A picture resized as its edge is carried, the note under it following;
+      pictures resampled to the screen's pixels they cover, a screenshot at its own
+      size (7.17.0).
+- [x] **S58.2** Tables: a space typed at a cell's end shows at once; rows and columns
+      inserted or deleted from the right-click menu (`edit::table_change`); borders
+      drawn, hidden or shown for every table; words below never joined to a row
+      (7.17.0).
+- [x] **S58.3** Emojis by name: `:name` opens a list, `:name:` becomes the emoji
+      (7.17.0).
+- [x] **S58.4** Ctrl+Left and Ctrl+Right word by word; Ctrl+Shift+V and the menu paste
+      as plain text; the tab follows the title as it is typed (7.17.0).

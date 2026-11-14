@@ -1243,6 +1243,9 @@ export component AppWindow inherits Window {
     in-out property <bool> note-edit-menu-open;
     in property <string> note-edit-menu-kind;
     in property <bool> note-edit-menu-resized;
+    /// The right-click was in a table: its rows and columns are offered, and its borders.
+    in property <bool> note-edit-menu-table;
+    in property <bool> note-edit-menu-borders;
     in property <length> note-edit-menu-x;
     in property <length> note-edit-menu-y;
     callback note-edit-menu-chosen(string);
@@ -4212,6 +4215,8 @@ export component AppWindow inherits Window {
             menu-y: root.note-edit-menu-y;
             kind: root.note-edit-menu-kind;
             resized: root.note-edit-menu-resized;
+            table: root.note-edit-menu-table;
+            borders: root.note-edit-menu-borders;
             chosen(action) => {
                 root.note-edit-menu-open = false;
                 root.note-edit-menu-chosen(action);

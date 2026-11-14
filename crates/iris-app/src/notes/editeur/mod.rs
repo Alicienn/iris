@@ -199,6 +199,9 @@ pub struct Contexte<'a> {
     pub couleurs: &'a Couleurs,
     pub polices: &'a Polices,
     pub dir: Option<&'a std::path::Path>,
+    /// A table's borders drawn (the setting; off, only the header's plate and a line
+    /// under it).
+    pub bordures: bool,
     /// A formula in a line, at a size.
     pub formule: riche::Dessinateur<'a>,
     /// A `$$` block's formula.

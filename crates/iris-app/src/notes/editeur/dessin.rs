@@ -76,29 +76,79 @@ fn source_entiere(content: &str, base: Pinceau, plat: bool, cx: &Contexte) -> Ri
     r
 }
 
+/// A picture file decoded: its pixels and its own size.
+type Source = std::rc::Rc<(image::RgbaImage, u32, u32)>;
+
+type Quand = Option<std::time::SystemTime>;
+
+thread_local! {
+    /// The pictures decoded, kept while their file does not change (a few: they are
+    /// only needed again when a picture is resized).
+    static SOURCES: std::cell::RefCell<
+        std::collections::HashMap<std::path::PathBuf, (Quand, Source)>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+    /// The pictures at the size they are drawn, by file and width in the screen's pixels.
+    static IMAGES: std::cell::RefCell<
+        std::collections::HashMap<(std::path::PathBuf, u32), (Quand, slint::Image)>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// A picture embedded, decoded once per file and kept while the file does not change.
-fn image_de(chemin: &std::path::Path) -> Option<slint::Image> {
-    thread_local! {
-        static IMAGES: std::cell::RefCell<
-            std::collections::HashMap<std::path::PathBuf, (Option<std::time::SystemTime>, slint::Image)>,
-        > = std::cell::RefCell::new(std::collections::HashMap::new());
-    }
-    let quand = std::fs::metadata(chemin).and_then(|m| m.modified()).ok();
-    if let Some(img) = IMAGES.with_borrow(|m| {
+fn source_de(chemin: &std::path::Path, quand: Quand) -> Option<Source> {
+    if let Some(s) = SOURCES.with_borrow(|m| {
         m.get(chemin)
+            .filter(|(q, _)| *q == quand)
+            .map(|(_, s)| s.clone())
+    }) {
+        return Some(s);
+    }
+    let s: Source = std::rc::Rc::new(render::picture(chemin)?);
+    SOURCES.with_borrow_mut(|m| {
+        if m.len() >= 8 {
+            m.clear();
+        }
+        m.insert(chemin.to_path_buf(), (quand, s.clone()));
+    });
+    Some(s)
+}
+
+/// A picture embedded, made `largeur` × `hauteur` screen pixels, kept for the next time.
+fn image_a(
+    chemin: &std::path::Path,
+    quand: Quand,
+    src: &Source,
+    largeur: u32,
+    hauteur: u32,
+) -> slint::Image {
+    let cle = (chemin.to_path_buf(), largeur);
+    if let Some(img) = IMAGES.with_borrow(|m| {
+        m.get(&cle)
             .filter(|(q, _)| *q == quand)
             .map(|(_, i)| i.clone())
     }) {
-        return Some(img);
+        return img;
     }
-    let img = render::picture(chemin)?;
+    let img = render::resampled(&src.0, largeur, hauteur);
     IMAGES.with_borrow_mut(|m| {
-        if m.len() > 64 {
+        if m.len() >= 64 {
             m.clear();
         }
-        m.insert(chemin.to_path_buf(), (quand, img.clone()));
+        m.insert(cle, (quand, img.clone()));
     });
-    Some(img)
+    img
+}
+
+/// The target of an embed with its width set to `largeur` (`![[a.png|320]]`), or none
+/// (the picture at its own size): a width or a box given before goes.
+pub fn avec_largeur(target: &str, largeur: Option<f32>) -> String {
+    let mut parties: Vec<String> = target.split('|').map(|p| p.trim().to_string()).collect();
+    let nom = parties.remove(0);
+    parties.retain(|p| p.parse::<f32>().is_err() && boite_demandee(&format!("x|{p}")).is_none());
+    parties.insert(0, nom);
+    if let Some(l) = largeur {
+        parties.push(format!("{}", l.round() as i64));
+    }
+    parties.join("|")
 }
 
 /// The width an embed asks its picture to be drawn at (`![[a.png|300]]`).
@@ -314,12 +364,18 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
             let image = cx
                 .dir
                 .and_then(|dir| render::embedded_file(target, dir))
-                .and_then(|p| image_de(&p));
+                .and_then(|p| {
+                    let quand = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
+                    let s = source_de(&p, quand)?;
+                    Some((p, quand, s))
+                });
             match image {
-                Some(img) => {
-                    let taille = img.size();
-                    let naturelle = taille.width as f32;
-                    let rapport = taille.height as f32 / naturelle.max(1.0);
+                Some((chemin, quand, src)) => {
+                    let e = cx.echelle.max(0.25);
+                    // Its own size is the screen's pixels it was taken from: a
+                    // screenshot shows as large as what it shows.
+                    let naturelle = src.1 as f32 / e;
+                    let rapport = src.2 as f32 / (src.1 as f32).max(1.0);
                     // Never stretched: the width asked for (or a box, `|300x200`, the
                     // picture fitted inside it), narrowed to the column, the height
                     // following.
@@ -329,7 +385,11 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
                     }
                     .min(w)
                     .max(16.0);
-                    let ih = iw * rapport;
+                    // Whole screen pixels, so it is drawn one to one.
+                    let pw = (iw * e).round().max(1.0);
+                    let ph = (pw * rapport).round().max(1.0);
+                    let (iw, ih) = (pw / e, ph / e);
+                    let img = image_a(&chemin, quand, &src, pw as u32, ph as u32);
                     d.images.push(iris_ui::NoteImageData {
                         x: 0.0,
                         y: 4.0,
@@ -625,7 +685,15 @@ fn table(
             } else {
                 m.len() - m.trim_start().len()
             };
-            cases.push((debut + ici + espaces, m.trim()));
+            // Written, a space just typed at a cell's end shows at once (the cursor
+            // after it): only the one space before the `|` is left out.
+            let fin = if ecrit {
+                let marge = usize::from(m.ends_with(' ') && m.len() > espaces + 1);
+                (m.len() - marge).max(espaces)
+            } else {
+                espaces + m.trim().len()
+            };
+            cases.push((debut + ici + espaces, &m[espaces..fin]));
         }
         rangees.push(cases);
     }
@@ -670,15 +738,29 @@ fn table(
             haut = haut.max(z.hauteur + 10.0);
             zs.push(z);
         }
-        for k in 0..colonnes {
-            d.cadre(
-                k as f32 * wc,
-                y,
-                wc,
-                haut,
-                if r == 0 { c.plaque } else { 0 },
+        if r == 0 {
+            d.rect(0.0, y, wc * colonnes as f32, haut, c.plaque, 0.0);
+        }
+        if cx.bordures {
+            // Each cell's edges, drawn once: a line on top of every row and left of
+            // every column, the frame's bottom and right after.
+            let largeur = wc * colonnes as f32;
+            d.rect(0.0, y, largeur, 1.0, c.bordure_forte, 0.0);
+            for k in 0..colonnes {
+                d.rect(k as f32 * wc, y, 1.0, haut, c.bordure_forte, 0.0);
+            }
+            d.rect(largeur - 1.0, y, 1.0, haut, c.bordure_forte, 0.0);
+            if r + 1 == rangees.len() {
+                d.rect(0.0, y + haut - 1.0, largeur, 1.0, c.bordure_forte, 0.0);
+            }
+        } else if r == 0 {
+            // Without borders, a line under the header still says where it ends.
+            d.rect(
+                0.0,
+                y + haut - 1.0,
+                wc * colonnes as f32,
+                1.0,
                 c.bordure,
-                0.5,
                 0.0,
             );
         }

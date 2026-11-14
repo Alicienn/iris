@@ -296,6 +296,26 @@ pub fn typographic(content: &str, cursor: usize) -> Option<Edit> {
     if dollars % 2 == 1 || ligne.matches('`').count() % 2 == 1 {
         return None;
     }
+    // `:smile:` closed: the emoji it names.
+    if let Some(r) = avant.strip_suffix(':') {
+        if let Some(k) = r.rfind(':') {
+            let nom = &r[k + 1..];
+            let seul = r[..k]
+                .chars()
+                .next_back()
+                .is_none_or(|c| c.is_whitespace() || c == '(');
+            let mot = !nom.is_empty()
+                && nom
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '-'));
+            if seul && mot {
+                if let Some(emoji) = crate::complete::emoji_named(nom) {
+                    let t = format!("{}{emoji}{}", &content[..k], &content[cursor..]);
+                    return Some(Edit::at(t, k + emoji.len()));
+                }
+            }
+        }
+    }
     let (de, vers) = SIGNES.iter().find(|(de, _)| avant.ends_with(de))?;
     // `\->` keeps the characters.
     if avant[..avant.len() - de.len()].ends_with('\\') {
@@ -652,6 +672,151 @@ pub fn table_grow(content: &str, colonne: bool) -> Edit {
         sortie.push(ligne);
     }
     Edit::at(sortie.join(le), curseur)
+}
+
+/// What a table's row or column menu does (`table_change`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableChange {
+    RowAbove,
+    RowBelow,
+    DeleteRow,
+    ColumnLeft,
+    ColumnRight,
+    DeleteColumn,
+}
+
+/// The row (its line) and the column of the cell holding `cursor`.
+fn cellule_de(content: &str, cursor: usize) -> (usize, usize) {
+    let cursor = limite(content, cursor);
+    let ligne = content[..cursor].matches('\n').count();
+    let colonne = table_cells(content)
+        .get(ligne)
+        .and_then(|cases| cases.iter().rposition(|(s, _)| *s <= cursor))
+        .unwrap_or(0);
+    (ligne, colonne)
+}
+
+/// A table's lines as cells (the separator's too), each cell's words trimmed.
+fn grille(content: &str) -> Vec<Vec<String>> {
+    content
+        .split('\n')
+        .map(|l| l.trim_end_matches('\r').trim())
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let l = l.strip_prefix('|').unwrap_or(l);
+            let l = l.strip_suffix('|').unwrap_or(l);
+            l.split('|').map(|c| c.trim().to_string()).collect()
+        })
+        .collect()
+}
+
+/// A table written back from its cells, `| a | b |` a row (an empty cell `|  |`).
+fn ecrire_grille(lignes: &[Vec<String>], le: &str, fin: &str) -> String {
+    let mut t = lignes
+        .iter()
+        .map(|cases| {
+            let mut l = String::from("|");
+            for c in cases {
+                l.push(' ');
+                l.push_str(c);
+                l.push_str(" |");
+            }
+            l
+        })
+        .collect::<Vec<_>>()
+        .join(le);
+    t.push_str(fin);
+    t
+}
+
+/// A row or a column of a table added beside the cell holding `cursor`, or that cell's
+/// row or column taken away; the cursor in the cell where it was, the one beside, or
+/// the new one. `None` when nothing changes. An empty text: the table is gone (its
+/// last row of words or its last column taken away). The header's row taken away,
+/// the first row under it becomes the header.
+pub fn table_change(content: &str, cursor: usize, change: TableChange) -> Option<Edit> {
+    let le = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let corps = content.trim_end_matches(['\n', '\r']);
+    let fin = &content[corps.len()..];
+    let (ligne, colonne) = cellule_de(corps, cursor);
+    let mut g = grille(corps);
+    if g.len() < 2 {
+        return None;
+    }
+    let colonnes = g.iter().map(Vec::len).max().unwrap_or(1).max(1);
+    for cases in &mut g {
+        cases.resize(colonnes, String::new());
+    }
+    // The separator is row 1; the cursor never is on it.
+    let ligne = if ligne == 1 {
+        0
+    } else {
+        ligne.min(g.len() - 1)
+    };
+    let vide = || vec![String::new(); colonnes];
+    let (r, c) = match change {
+        TableChange::RowAbove | TableChange::RowBelow => {
+            // Nothing goes above the header: a row above it goes under it.
+            let at = if ligne == 0 {
+                2
+            } else if change == TableChange::RowAbove {
+                ligne
+            } else {
+                ligne + 1
+            };
+            g.insert(at, vide());
+            (at, colonne)
+        }
+        TableChange::DeleteRow => {
+            if g.len() <= 2 {
+                return Some(Edit::at(String::new(), 0));
+            }
+            if ligne == 0 {
+                let premiere = g.remove(2);
+                g[0] = premiere;
+                (0, colonne)
+            } else {
+                g.remove(ligne);
+                let r = ligne.min(g.len() - 1);
+                (if r == 1 { 0 } else { r }, colonne)
+            }
+        }
+        TableChange::ColumnLeft | TableChange::ColumnRight => {
+            let at = if change == TableChange::ColumnLeft {
+                colonne
+            } else {
+                colonne + 1
+            };
+            for (i, cases) in g.iter_mut().enumerate() {
+                cases.insert(
+                    at.min(cases.len()),
+                    if i == 1 { "---".into() } else { String::new() },
+                );
+            }
+            (ligne, at)
+        }
+        TableChange::DeleteColumn => {
+            if colonnes <= 1 {
+                return Some(Edit::at(String::new(), 0));
+            }
+            for cases in &mut g {
+                if colonne < cases.len() {
+                    cases.remove(colonne);
+                }
+            }
+            (ligne, colonne.min(colonnes - 2))
+        }
+    };
+    let t = ecrire_grille(&g, le, fin);
+    let curseur = table_cells(&t)
+        .get(r)
+        .and_then(|cases| cases.get(c).or(cases.last()))
+        .map_or(0, |(s, _)| *s);
+    Some(Edit::at(t, curseur))
 }
 
 /// Ticks a checkbox or unticks it; a line that is not one becomes one.
@@ -1385,6 +1550,35 @@ mod tests {
         assert_eq!(r.text, "| a | b |  |\n|---|---| --- |\n| c | d |  |");
         assert_eq!(r.cursor, 10);
         assert_eq!(table_cells(&r.text)[0][2], (10, 10));
+    }
+
+    #[test]
+    fn a_table_loses_or_gains_a_row_or_a_column_where_the_cursor_is() {
+        let t = "| a | b |\n|---|---|\n| c | d |\n";
+        let r = table_change(t, 23, TableChange::DeleteRow).unwrap();
+        assert_eq!(r.text, "| a | b |\n| --- | --- |\n");
+        assert_eq!(r.cursor, 2);
+        // The header taken away: the row under it becomes the header.
+        let r = table_change(t, 2, TableChange::DeleteRow).unwrap();
+        assert_eq!(r.text, "| c | d |\n| --- | --- |\n");
+        // The last row of words: the table goes.
+        let seul = "| a | b |\n|---|---|";
+        assert_eq!(
+            table_change(seul, 2, TableChange::DeleteRow).unwrap().text,
+            ""
+        );
+        let r = table_change(t, 2, TableChange::ColumnRight).unwrap();
+        assert_eq!(r.text, "| a |  | b |\n| --- | --- | --- |\n| c |  | d |\n");
+        assert_eq!(r.cursor, 6);
+        let r = table_change(t, 6, TableChange::DeleteColumn).unwrap();
+        assert_eq!(r.text, "| a |\n| --- |\n| c |\n");
+        assert_eq!(r.cursor, 2);
+        // A row above the header goes under it.
+        let r = table_change(t, 2, TableChange::RowAbove).unwrap();
+        assert_eq!(r.text, "| a | b |\n| --- | --- |\n|  |  |\n| c | d |\n");
+        let r = table_change(t, 23, TableChange::RowBelow).unwrap();
+        assert_eq!(r.text, "| a | b |\n| --- | --- |\n| c | d |\n|  |  |\n");
+        assert_eq!(r.cursor, 36);
     }
 
     #[test]

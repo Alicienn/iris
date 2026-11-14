@@ -259,25 +259,45 @@ pub fn embedded_file(target: &str, dir: &std::path::Path) -> Option<std::path::P
 /// The widest a picture is kept in memory, in pixels: the column is narrower.
 const LARGEUR_MAX: u32 = 1600;
 
-/// A picture file, decoded and made no wider than the column needs.
-pub fn picture(path: &std::path::Path) -> Option<slint::Image> {
+/// A picture file decoded: its pixels, made no wider than the column needs, and its own
+/// width and height.
+pub fn picture(path: &std::path::Path) -> Option<(image::RgbaImage, u32, u32)> {
     let img = image::open(path).ok()?;
-    let img = if img.width() > LARGEUR_MAX {
+    let (w, h) = (img.width(), img.height());
+    let img = if w > LARGEUR_MAX {
         img.resize(
             LARGEUR_MAX,
-            LARGEUR_MAX * img.height() / img.width().max(1),
+            LARGEUR_MAX * h / w.max(1),
             image::imageops::FilterType::Triangle,
         )
     } else {
         img
     };
-    let rgba = img.to_rgba8();
-    let (w, h) = rgba.dimensions();
-    Some(slint::Image::from_rgba8(slint::SharedPixelBuffer::<
-        slint::Rgba8Pixel,
-    >::clone_from_slice(
-        rgba.as_raw(), w, h
-    )))
+    Some((img.to_rgba8(), w, h))
+}
+
+/// A picture's pixels made exactly `largeur` × `hauteur` (the screen's pixels it covers),
+/// so that it is drawn one to one: a screenshot's letters stay sharp, never picked
+/// pixel by pixel by a scaling of the renderer.
+pub fn resampled(img: &image::RgbaImage, largeur: u32, hauteur: u32) -> slint::Image {
+    let (largeur, hauteur) = (largeur.max(1), hauteur.max(1));
+    let pixels = if img.dimensions() == (largeur, hauteur) {
+        std::borrow::Cow::Borrowed(img)
+    } else {
+        std::borrow::Cow::Owned(image::imageops::resize(
+            img,
+            largeur,
+            hauteur,
+            image::imageops::FilterType::CatmullRom,
+        ))
+    };
+    slint::Image::from_rgba8(
+        slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+            pixels.as_raw(),
+            largeur,
+            hauteur,
+        ),
+    )
 }
 
 /// Whether a file name is a picture the editor draws.

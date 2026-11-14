@@ -4731,6 +4731,9 @@ export component NotesEditMenu inherits Rectangle {
     in property <string> kind;
     /// The picture is drawn at a width of its own (`|320`): it can be put back.
     in property <bool> resized;
+    /// In a table: its rows and columns, and whether tables show their borders.
+    in property <bool> table;
+    in property <bool> borders;
     callback chosen(string);
     callback dismissed();
 
@@ -4805,6 +4808,49 @@ export component NotesEditMenu inherits Rectangle {
                 label: "Paste";
                 shortcut: "Ctrl+V";
                 activated => { root.chosen("paste"); }
+            }
+            if root.kind != "image": MenuEntry {
+                label: "Paste as plain text";
+                shortcut: "Ctrl+Shift+V";
+                activated => { root.chosen("paste-plain"); }
+            }
+            if root.table: MenuSeparator {}
+            if root.table: MenuEntry {
+                icon: Icons.plus;
+                label: "Insert row above";
+                activated => { root.chosen("table-row-above"); }
+            }
+            if root.table: MenuEntry {
+                icon: Icons.plus;
+                label: "Insert row below";
+                activated => { root.chosen("table-row-below"); }
+            }
+            if root.table: MenuEntry {
+                icon: Icons.plus;
+                label: "Insert column left";
+                activated => { root.chosen("table-column-left"); }
+            }
+            if root.table: MenuEntry {
+                icon: Icons.plus;
+                label: "Insert column right";
+                activated => { root.chosen("table-column-right"); }
+            }
+            if root.table: MenuEntry {
+                icon: Icons.trash;
+                label: "Delete row";
+                danger: true;
+                activated => { root.chosen("table-delete-row"); }
+            }
+            if root.table: MenuEntry {
+                icon: Icons.trash;
+                label: "Delete column";
+                danger: true;
+                activated => { root.chosen("table-delete-column"); }
+            }
+            if root.table: MenuEntry {
+                icon: root.borders ? Icons.eye-off : Icons.eye;
+                label: root.borders ? "Hide table borders" : "Show table borders";
+                activated => { root.chosen("table-borders"); }
             }
             if root.kind == "selection": MenuSeparator {}
             if root.kind == "selection": MenuEntry {

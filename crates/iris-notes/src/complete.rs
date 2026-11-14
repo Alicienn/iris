@@ -5,7 +5,8 @@
 //! - `@` a date by its word (`@demain`, `@friday`);
 //! - `\` a LaTeX command;
 //! - `/` at the start of a line, a block (`/thm`, `/table`, `/math`);
-//! - `{` a colour.
+//! - `{` a colour;
+//! - `:` an emoji by its name (`:smile`).
 
 use crate::edit::Edit;
 
@@ -37,6 +38,11 @@ pub enum Trigger {
         query: String,
         start: usize,
     },
+    /// `:name` an emoji by its name.
+    Emoji {
+        query: String,
+        start: usize,
+    },
 }
 
 impl Trigger {
@@ -47,7 +53,8 @@ impl Trigger {
             | Trigger::Date { query, .. }
             | Trigger::Command { query, .. }
             | Trigger::Block { query, .. }
-            | Trigger::Colour { query, .. } => query,
+            | Trigger::Colour { query, .. }
+            | Trigger::Emoji { query, .. } => query,
         }
     }
 
@@ -58,7 +65,8 @@ impl Trigger {
             | Trigger::Date { start, .. }
             | Trigger::Command { start, .. }
             | Trigger::Block { start, .. }
-            | Trigger::Colour { start, .. } => *start,
+            | Trigger::Colour { start, .. }
+            | Trigger::Emoji { start, .. } => *start,
         }
     }
 }
@@ -119,6 +127,18 @@ pub fn trigger_at(text: &str, cursor: usize) -> Option<Trigger> {
         }
         Some('{') if mot[1..].chars().all(|c| c.is_alphabetic()) && !mot.contains('}') => {
             Some(Trigger::Colour {
+                query: mot[1..].to_string(),
+                start,
+            })
+        }
+        // `:sm` — two letters at least, so `:` alone, `::` and `:)` ask for nothing.
+        Some(':')
+            if mot[1..].len() >= 2
+                && mot[1..]
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-') =>
+        {
+            Some(Trigger::Emoji {
                 query: mot[1..].to_string(),
                 start,
             })
@@ -233,6 +253,50 @@ pub fn colour_candidates(query: &str) -> Vec<Candidate> {
             cursor: c.code().len() + 2,
         })
         .collect()
+}
+
+/// The emojis whose name starts with what was typed after `:` (then those whose name
+/// holds it), at most `max`; choosing one writes the emoji itself.
+pub fn emoji_candidates(query: &str, max: usize) -> Vec<Candidate> {
+    let q = query.to_ascii_lowercase();
+    let mut debut = Vec::new();
+    let mut dedans = Vec::new();
+    for e in emojis::iter() {
+        // Skin tones are variants of one emoji: offered once.
+        if e.skin_tone()
+            .is_some_and(|t| t != emojis::SkinTone::Default)
+        {
+            continue;
+        }
+        let Some(nom) = e
+            .shortcodes()
+            .find(|s| s.starts_with(&q))
+            .or_else(|| e.shortcodes().find(|s| s.contains(&q)))
+        else {
+            continue;
+        };
+        let c = Candidate {
+            label: format!("{} :{nom}:", e.as_str()),
+            detail: e.name().to_string(),
+            insert: e.as_str().to_string(),
+            cursor: e.as_str().len(),
+        };
+        if nom == q {
+            debut.insert(0, c);
+        } else if nom.starts_with(&q) {
+            debut.push(c);
+        } else {
+            dedans.push(c);
+        }
+    }
+    debut.extend(dedans);
+    debut.truncate(max);
+    debut
+}
+
+/// The emoji a whole `:name:` names, for the closing `:` typed.
+pub fn emoji_named(name: &str) -> Option<&'static str> {
+    emojis::get_by_shortcode(name).map(|e| e.as_str())
 }
 
 /// The dates a word names, from `today`: today, tomorrow, the days of the week (the
@@ -453,5 +517,29 @@ mod tests {
             .iter()
             .any(|c| c.insert == "\\frac{}{}"));
         assert_eq!(colour_candidates("r")[0].insert, "{r}{/}");
+    }
+
+    #[test]
+    fn an_emoji_is_found_by_its_name() {
+        assert_eq!(
+            trigger_at("bien :sm", 8),
+            Some(Trigger::Emoji {
+                query: "sm".into(),
+                start: 5
+            })
+        );
+        // `:` alone, a flashcard's `::`, a time, a smiley: nothing asked.
+        assert_eq!(trigger_at("a :", 3), None);
+        assert_eq!(trigger_at("Q :: R", 4), None);
+        assert_eq!(trigger_at("à 10:30", 8), None);
+        let liste = emoji_candidates("smile", 8);
+        assert_eq!(liste[0].insert, "😄");
+        assert!(liste.len() <= 8);
+        assert_eq!(emoji_named("tada"), Some("🎉"));
+        assert_eq!(
+            crate::edit::typographic("bravo :tada:", 12).unwrap().text,
+            "bravo 🎉"
+        );
+        assert!(crate::edit::typographic("à 10:30:", 9).is_none());
     }
 }
