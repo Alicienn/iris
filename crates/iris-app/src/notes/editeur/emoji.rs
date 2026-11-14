@@ -20,12 +20,14 @@ pub struct Glyphe {
     pub hauteur: f32,
 }
 
+/// A glyph drawn: its font's data and index, its id, its size in quarters of a pixel.
+type CleGlyphe = (u64, u32, u32, u32);
+
 thread_local! {
     /// Whether a font (its data and index) has coloured layers.
     static COULEUR: RefCell<HashMap<(u64, u32), bool>> = RefCell::new(HashMap::new());
-    /// The glyphs drawn, by font, glyph and size (a quarter of a pixel).
-    static GLYPHES: RefCell<HashMap<(u64, u32, u32, u32), Option<Glyphe>>> =
-        RefCell::new(HashMap::new());
+    /// The glyphs drawn (none: the glyph has no coloured layers).
+    static GLYPHES: RefCell<HashMap<CleGlyphe, Option<Glyphe>>> = RefCell::new(HashMap::new());
     static ECHELLES: RefCell<ScaleContext> = RefCell::new(ScaleContext::new());
 }
 
