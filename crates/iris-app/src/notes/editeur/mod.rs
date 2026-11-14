@@ -8,6 +8,7 @@
 //! written, or of the column's width; what does not change is kept (`Vue`).
 
 pub mod dessin;
+pub mod emoji;
 pub mod riche;
 
 use iris_ui::{NoteIconData, NoteImageData, NoteRectData, NoteRunData};
@@ -449,6 +450,27 @@ pub fn poser(
                     if texte.trim().is_empty() {
                         continue;
                     }
+                    // A colour font's glyphs (emojis) as pictures: the renderer would
+                    // paint them in the text's one colour.
+                    if emoji::en_couleur(run.font()) {
+                        let images: Option<Vec<NoteImageData>> = gr
+                            .positioned_glyphs()
+                            .map(|g| {
+                                let gl = emoji::glyphe(run.font(), g.id, run.font_size())?;
+                                Some(NoteImageData {
+                                    x: x + (g.x + gl.gauche) / e,
+                                    y: y + s + (g.y + gl.haut) / e,
+                                    w: gl.largeur / e,
+                                    h: gl.hauteur / e,
+                                    image: gl.image,
+                                })
+                            })
+                            .collect();
+                        if let Some(images) = images {
+                            d.images.extend(images);
+                            continue;
+                        }
+                    }
                     let mt = run.metrics();
                     let t = run.font_size() / e;
                     let base = y + s + gr.baseline() / e;
@@ -575,6 +597,37 @@ pub fn largeur_de(texte: &str, taille: f32, famille: u8, cx: &Contexte) -> f32 {
             l.width() / cx.echelle
         })
     })
+}
+
+/// An emoji drawn in its colours, `taille` logical pixels to the em at `echelle`, for a
+/// list that shows it (the first coloured glyph `texte` is laid out with).
+pub fn image_emoji(texte: &str, taille: f32, echelle: f32, police: &str) -> Option<slint::Image> {
+    let mise: Mise = MISES.with_borrow_mut(|lc| {
+        POLICES.with_borrow_mut(|fc| {
+            let mut b = lc.ranged_builder(fc, texte, echelle, false);
+            b.push_default(familles(police));
+            b.push_default(StyleProperty::FontSize(taille));
+            let mut l = b.build(texte);
+            l.break_all_lines(None);
+            l
+        })
+    });
+    for ligne in mise.lines() {
+        for item in ligne.items() {
+            if let PositionedLayoutItem::GlyphRun(gr) = item {
+                let run = gr.run();
+                if !emoji::en_couleur(run.font()) {
+                    continue;
+                }
+                if let Some(g) = gr.positioned_glyphs().next() {
+                    if let Some(gl) = emoji::glyphe(run.font(), g.id, run.font_size()) {
+                        return Some(gl.image);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// What a click on a block can do besides placing the cursor.

@@ -18,6 +18,7 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - A note's tab shows its new title as you type it.
 
 ### Fixed
+- Emojis in notes show in their colours instead of white.
 - A space typed at the end of a table cell shows at once.
 - Deleting in or around a table no longer pulls the text below into it.
 

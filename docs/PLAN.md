@@ -1061,7 +1061,8 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       inserted or deleted from the right-click menu (`edit::table_change`); borders
       drawn, hidden or shown for every table; words below never joined to a row
       (7.17.0).
-- [x] **S58.3** Emojis by name: `:name` opens a list, `:name:` becomes the emoji
+- [x] **S58.3** Emojis by name: `:name` opens a list, `:name:` becomes the emoji; colour
+      glyphs drawn as pictures by swash, since the software renderer paints one colour
       (7.17.0).
 - [x] **S58.4** Ctrl+Left and Ctrl+Right word by word; Ctrl+Shift+V and the menu paste
       as plain text; the tab follows the title as it is typed (7.17.0).

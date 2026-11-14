@@ -1870,6 +1870,22 @@ fn apres_curseur(f: &AppWindow, e: &mut Etat) {
                     })
                     .collect();
                 f.set_note_completion(ModelRc::new(VecModel::from(donnees)));
+                // Emojis drawn beside their names, in their colours.
+                let images: Vec<slint::Image> =
+                    if matches!(t, iris_notes::complete::Trigger::Emoji { .. }) {
+                        let echelle = f.window().scale_factor();
+                        let police = f.global::<iris_ui::Tokens>().get_font_note().to_string();
+                        liste
+                            .iter()
+                            .map(|c| {
+                                editeur::image_emoji(&c.insert, 18.0, echelle, &police)
+                                    .unwrap_or_default()
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                f.set_note_completion_pictures(ModelRc::new(VecModel::from(images)));
                 f.set_note_completion_highlight(0);
                 e.completion = Some(Completion {
                     block,

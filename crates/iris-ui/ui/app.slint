@@ -1218,6 +1218,7 @@ export component AppWindow inherits Window {
     callback note-fold-toggled(int);
     callback note-caret(int, length, length, int, int);
     in property <[NoteFoundData]> note-completion;
+    in property <[image]> note-completion-pictures;
     in property <int> note-completion-highlight;
     // The note's editor: what it draws, its selection and cursor, and what reaches it.
     in property <[NoteViewBlock]> note-view;
@@ -3585,6 +3586,7 @@ export component AppWindow inherits Window {
             fold-toggled(k) => { root.note-fold-toggled(k); }
             caret(k, x, y, c, a) => { root.note-caret(k, x, y, c, a); }
             completion: root.note-completion;
+            completion-pictures: root.note-completion-pictures;
             completion-highlight: root.note-completion-highlight;
             view: root.note-view;
             view-height: root.note-view-height;

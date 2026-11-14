@@ -1202,7 +1202,11 @@ before or in one does nothing, and a selection deleted across a table's edge lea
 what remains of each line on a line of its own (`remplacer_plage`). `:name` opens the
 emoji list (`complete::Trigger::Emoji`, from the `emojis` crate's shortcodes, skin tones
 offered once, never in code or maths), and a closing `:` makes a whole name its emoji
-(`edit::typographic`). Ctrl+Shift+V pastes the clipboard's text alone (in a cell, on
+(`edit::typographic`). Slint's software renderer paints a glyph in the text's one
+colour, so a glyph of a colour font (`COLR`/`CPAL` layers, Segoe UI Emoji's) is drawn
+by `swash` as a picture where parley placed it (`editeur::emoji`, 512 glyphs kept),
+in the note and beside each name in the emoji list; a glyph without layers stays
+text. Ctrl+Shift+V pastes the clipboard's text alone (in a cell, on
 one line). The title typed renames the note's tab at once; the file follows 700 ms
 after the last key, as before. Each tab keeps how far its note was scrolled
 (`Etat::defilements`, from the page's `content-y`), forgotten when the tab closes or

@@ -55,23 +55,33 @@ macro_rules! numeric_id {
 
 numeric_id!(
     /// Une boîte configurée dans l'application.
-    AccountId, i64, "acc:"
+    AccountId,
+    i64,
+    "acc:"
 );
 numeric_id!(
     /// Un dossier distant (IMAP) rattaché à un compte.
-    FolderId, i64, "fld:"
+    FolderId,
+    i64,
+    "fld:"
 );
 numeric_id!(
     /// Un message tel que stocké localement. Distinct du `Message-ID` du protocole.
-    MessageId, i64, "msg:"
+    MessageId,
+    i64,
+    "msg:"
 );
 numeric_id!(
     /// Un fil de conversation. Porte l'état de workflow.
-    ThreadId, i64, "thr:"
+    ThreadId,
+    i64,
+    "thr:"
 );
 numeric_id!(
     /// Une entrée du journal d'opérations en attente de réconciliation.
-    OpId, i64, "op:"
+    OpId,
+    i64,
+    "op:"
 );
 
 /// Identifiant de contenu d'un corps ou d'une pièce jointe.

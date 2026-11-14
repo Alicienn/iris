@@ -276,7 +276,8 @@ pub fn emoji_candidates(query: &str, max: usize) -> Vec<Candidate> {
             continue;
         };
         let c = Candidate {
-            label: format!("{} :{nom}:", e.as_str()),
+            // The emoji itself is `insert`: a list draws it beside, in its colours.
+            label: format!(":{nom}:"),
             detail: e.name().to_string(),
             insert: e.as_str().to_string(),
             cursor: e.as_str().len(),

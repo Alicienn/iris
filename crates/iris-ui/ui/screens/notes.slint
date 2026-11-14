@@ -1758,6 +1758,8 @@ export component NotesView inherits Rectangle {
     // What pops up over the cursor: the completion list, the formatting bubble over a
     // selection, a card about what the cursor is in (a link, a colour, a footnote, maths).
     in property <[NoteFoundData]> completion;
+    /// Beside each row, a picture (an emoji in its colours); none for other lists.
+    in property <[image]> completion-pictures;
     in property <int> completion-highlight;
     // Where the cursor is in the window (the editor sets them), for what pops up.
     property <length> popup-x;
@@ -3071,6 +3073,13 @@ export component NotesView inherits Rectangle {
                         padding-left: 10px;
                         padding-right: 10px;
                         spacing: 10px;
+                        if i < root.completion-pictures.length: Image {
+                            y: (parent.height - self.height) / 2;
+                            width: 18px;
+                            height: 18px;
+                            source: root.completion-pictures[i];
+                            image-fit: contain;
+                        }
                         if BlockPreview.icon(c.key) != "": Icon {
                             y: (parent.height - self.height) / 2;
                             data: BlockPreview.icon(c.key);
@@ -3154,7 +3163,14 @@ export component NotesView inherits Rectangle {
                         padding-left: 14px;
                         padding-right: 14px;
                         spacing: 12px;
-                        if BlockPreview.icon(c.key) != "" || !root.completion-blocs: Icon {
+                        if i < root.completion-pictures.length: Image {
+                            y: (parent.height - self.height) / 2;
+                            width: 24px;
+                            height: 24px;
+                            source: root.completion-pictures[i];
+                            image-fit: contain;
+                        }
+                        if i >= root.completion-pictures.length && (BlockPreview.icon(c.key) != "" || !root.completion-blocs): Icon {
                             y: (parent.height - self.height) / 2;
                             data: BlockPreview.icon(c.key) != "" ? BlockPreview.icon(c.key) : Icons.notes;
                             size: 22px;

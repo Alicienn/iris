@@ -54,6 +54,9 @@ iris-search = { workspace = true }
 # The notes' editor lays its text out as Slint does (the same version, already in the
 # tree through Slint), to know where every character is.
 parley = "0.11"
+# A colour font's glyphs (emojis) drawn in their colours: the software renderer
+# paints a glyph in one colour. Already in the tree through parley's neighbours.
+swash = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 iris-caldav = { workspace = true }
 # L'heure locale de l'agenda, et le nom de son fuseau pour les récurrences.
