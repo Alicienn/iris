@@ -187,6 +187,10 @@ pub struct Settings {
     /// VIP, Office hours and Filer. Each does nothing until told something.
     #[serde(default)]
     pub triage: iris_rules::triage::Triage,
+    /// Sound: the theme last chosen, the volume, and each theme's own sound, pad and
+    /// options. Per device (not in `SHARED`): the headphones are this machine's.
+    #[serde(default)]
+    pub sound: crate::sound::SoundSettings,
 }
 
 fn cent() -> u32 {
@@ -283,6 +287,7 @@ impl Default for Settings {
             reduce_effects: false,
             mcp_enabled: false,
             triage: Default::default(),
+            sound: Default::default(),
         }
     }
 }
@@ -584,6 +589,20 @@ mod tests {
                     weekend: false,
                 },
                 filer: "invoice -> Accounts".into(),
+            },
+            sound: crate::sound::SoundSettings {
+                theme: "sleep".into(),
+                volume: 350,
+                themes: [(
+                    "asmr".to_string(),
+                    crate::sound::ThemeSettings {
+                        sound: 9,
+                        x: 250,
+                        y: 700,
+                        options: [("mask".to_string(), 7)].into(),
+                    },
+                )]
+                .into(),
             },
         };
 

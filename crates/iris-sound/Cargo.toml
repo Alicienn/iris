@@ -1,0 +1,11 @@
+[package]
+name = "iris-sound"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Generative soundscapes: the engine only. No dependencies, no I/O; it fills buffers
+# of interleaved stereo samples, and iris-app plays them.
+
+[dependencies]

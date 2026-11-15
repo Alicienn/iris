@@ -291,6 +291,8 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     crate::habits::wire_habits(&fenetre, &services);
     crate::devices::wire_devices(&fenetre, &services, runtime.handle().clone());
     crate::permissions::wire_permissions(&fenetre, &services);
+    // After the settings are shared: Sound reads its own from them.
+    crate::sound::wire_sound(&fenetre);
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui

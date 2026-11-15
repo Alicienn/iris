@@ -1062,3 +1062,21 @@ export struct HabitDetailData {
     unit: string,
     today-amount: int,
 }
+
+// Sound (7.18.0): a theme, a sound or an ASMR family, with its icon; `on` when chosen.
+export struct SoundItemData {
+    name: string,
+    icon: string,
+    on: bool,
+}
+
+// One of a Sound theme's options: a switch, or a few choices side by side.
+export struct SoundOptionData {
+    key: string,
+    title: string,
+    detail: string,
+    toggle: bool,
+    on: bool,
+    choices: [string],
+    chosen: int,
+}

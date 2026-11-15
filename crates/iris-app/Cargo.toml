@@ -51,6 +51,8 @@ iris-board = { path = "../iris-board" }
 resvg = { version = "0.48", default-features = false, features = ["text"] }
 iris-mcp = { path = "../iris-mcp" }
 iris-search = { workspace = true }
+# Sound: the generative soundscapes' engine (no dependencies, no I/O).
+iris-sound = { path = "../iris-sound" }
 # The notes' editor lays its text out as Slint does (the same version, already in the
 # tree through Slint), to know where every character is.
 parley = "0.11"
@@ -86,6 +88,10 @@ arboard = { version = "3", default-features = false, features = ["image-data"] }
 # Native file pickers. `xdg-portal` off: the Windows build has no use for it and
 # it drags in a GTK stack that has no business in this binary.
 rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
+# Sound's output (WASAPI on Windows). Built on the same `windows` 0.62 as the rest, so
+# little more is compiled. Not on Android yet: playing there in the background needs a
+# foreground service.
+cpal = "0.18"
 
 # Android: Slint on its own activity backend (NativeActivity, started by iris-android);
 # the clipboard and the pickers go through the platform (`presse`, `dialogue`).
@@ -109,6 +115,10 @@ windows = { version = "0.62", features = [
     "Foundation_Collections",
     "Data_Xml_Dom",
     "UI_Notifications",
+    # Sound in Windows's media controls (the volume flyout, the lock screen, the
+    # keyboard's play/pause key), as Spotify or a browser.
+    "Media",
+    "Win32_System_WinRT",
 ] }
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",

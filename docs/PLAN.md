@@ -1066,3 +1066,18 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       (7.17.0).
 - [x] **S58.4** Ctrl+Left and Ctrl+Right word by word; Ctrl+Shift+V and the menu paste
       as plain text; the tab follows the title as it is typed (7.17.0).
+
+## E59 — Sound (7.18.0)
+
+- [x] **S59.1** `iris-sound`: a generative engine without dependencies — fourteen sounds,
+      a pad on two axes, theme profiles, breathing, a 16 Hz boost on the 200 Hz–1 kHz
+      band, bells; ASMR rendered near the head (spherical head, near-field levels,
+      proximity lift) with families on lanes (7.18.0).
+- [x] **S59.2** The output: a `cpal` stream on its own thread, opened on play and closed
+      on pause; the session clock (fades, a break's bell, deep work's reminder, sleep
+      darkening, time of day); settings per device (7.18.0).
+- [x] **S59.3** The Sound card: seven goals, sounds or ASMR families, the pad (double
+      click to centre), volume, each goal's options; the light round the pad on a change;
+      the wave in the headphones while it plays; the palette's *Sound* (7.18.0).
+- [x] **S59.4** Windows's media controls and the keyboard's media key play and pause it;
+      the assistant's `sound_status`, `sound_play`, `sound_stop` (7.18.0).

@@ -859,6 +859,13 @@ fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<A
                 fenetre.set_settings_open(true);
             }
         }
+        CommandKind::Sound => {
+            if let Some(fenetre) = fenetre.upgrade() {
+                if fenetre.get_sound_available() {
+                    fenetre.invoke_open_sound();
+                }
+            }
+        }
         // Le rechargement des thèmes appartient à la surveillance de fichiers, qui
         // le fait déjà toute seule ; la commande n'a rien à ajouter.
         CommandKind::Reload => {}
@@ -9391,7 +9398,7 @@ mod tests {
                 | CommandKind::Compose
                 | CommandKind::TaskFromThread
                 | CommandKind::Quit => {}
-                CommandKind::Settings | CommandKind::Reload => {}
+                CommandKind::Settings | CommandKind::Sound | CommandKind::Reload => {}
             }
         }
     }

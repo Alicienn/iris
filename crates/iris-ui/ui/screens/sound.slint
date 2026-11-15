@@ -1,0 +1,339 @@
+// Sound (7.18.0): generative soundscapes to work, rest or sleep to. A card beside the
+// headphones button: the goal (theme), the sound, a pad that tunes it, the volume, and
+// the theme's own options. The sound itself is made and played in Rust
+// (`iris-app/src/sound.rs`, `iris-sound`).
+
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Motion } from "@iris/theme/motion.slint";
+import { Icons, IconButton } from "@iris/base/icons.slint";
+import { Pill, Segmented, Toggle } from "@iris/controls/choice.slint";
+import { Slider } from "@iris/controls/slider.slint";
+import { Popover } from "@iris/layout/frames.slint";
+import { SoundItemData, SoundOptionData } from "@iris/types.slint";
+
+/// The pad: drag the puck, or click where it should go; a double click puts it back in
+/// the middle. A soft light where it sits. When the sound changes, a band of light goes
+/// once round its edge in the theme's two colours, then fades: a linear gradient turning
+/// under the pad (the software renderer draws it; a conic one it cannot). One turn,
+/// never a loop.
+component SoundPad inherits Rectangle {
+    in property <float> px;
+    in property <float> py;
+    /// Left, right, bottom, top.
+    in property <[string]> axes;
+    in property <bool> live;
+    in property <bool> silent;
+    in property <int> ring;
+    in property <color> hue-a;
+    in property <color> hue-b;
+    callback moved(float, float);
+    callback recentred();
+
+    height: 200px;
+
+    // The light's turn: `turn` follows `ring` over 1.6 s; how far it still has to go
+    // says how bright the band is (in, then out).
+    property <float> turn: root.ring;
+    animate turn { duration: Motion.draw * 1.8; easing: cubic-bezier(0.45, 0, 0.25, 1); }
+    property <float> left: root.ring - root.turn;
+    property <float> glow: root.left > 0.001 && root.left <= 1 ? min(1, min((1 - root.left) * 7, root.left * 3.5)) : 0;
+    property <angle> sweep: root.turn * 360deg + 20deg;
+
+    Rectangle {
+        visible: root.glow > 0;
+        opacity: root.glow;
+        border-radius: 12px;
+        background: @linear-gradient(root.sweep, transparent 22%, root.hue-a 44%, root.hue-b 56%, transparent 78%);
+    }
+
+    Rectangle {
+        x: 1.5px;
+        y: 1.5px;
+        width: parent.width - 3px;
+        height: parent.height - 3px;
+        border-radius: 10.5px;
+        background: Tokens.background;
+        border-width: 1px;
+        border-color: Tokens.border;
+        clip: true;
+        opacity: root.silent ? 0.45 : 1;
+
+        // A fine grid, the middle lines a shade stronger.
+        for i in 7: Rectangle {
+            x: parent.width * (i + 1) / 8;
+            y: 0px;
+            width: 1px;
+            height: parent.height;
+            background: i == 3 ? Tokens.border-strong : Tokens.border;
+        }
+        for i in 7: Rectangle {
+            x: 0px;
+            y: parent.height * (i + 1) / 8;
+            width: parent.width;
+            height: 1px;
+            background: i == 3 ? Tokens.border-strong : Tokens.border;
+        }
+
+        // The light where the puck sits, brighter while sound plays.
+        Rectangle {
+            visible: !root.silent;
+            x: parent.width * root.px - 150px;
+            y: parent.height * (1 - root.py) - 150px;
+            width: 300px;
+            height: 300px;
+            opacity: root.live ? 1 : 0.5;
+            background: @radial-gradient(circle, Tokens.accent.transparentize(0.74) 0%, Tokens.accent.transparentize(1) 50%);
+        }
+
+        Text {
+            x: (parent.width - self.width) / 2;
+            y: 6px;
+            text: root.axes[3];
+            font-size: 11px;
+            color: Tokens.text-muted;
+        }
+        Text {
+            x: (parent.width - self.width) / 2;
+            y: parent.height - self.height - 6px;
+            text: root.axes[2];
+            font-size: 11px;
+            color: Tokens.text-muted;
+        }
+        Text {
+            x: 8px;
+            y: (parent.height - self.height) / 2 - 10px;
+            text: root.axes[0];
+            font-size: 11px;
+            color: Tokens.text-muted;
+        }
+        Text {
+            x: parent.width - self.width - 8px;
+            y: (parent.height - self.height) / 2 - 10px;
+            text: root.axes[1];
+            font-size: 11px;
+            color: Tokens.text-muted;
+        }
+
+        // The puck: a ring at rest, filled while sound plays.
+        Rectangle {
+            visible: !root.silent;
+            x: parent.width * root.px - 12px;
+            y: parent.height * (1 - root.py) - 12px;
+            width: 24px;
+            height: 24px;
+            border-radius: 12px;
+            background: root.live ? Tokens.accent : Tokens.panel;
+            border-width: root.live ? 0px : 6px;
+            border-color: Tokens.accent;
+            drop-shadow-blur: 6px;
+            drop-shadow-offset-y: 1px;
+            drop-shadow-color: Tokens.accent.transparentize(0.6);
+        }
+    }
+
+    TouchArea {
+        enabled: !root.silent;
+        mouse-cursor: crosshair;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.moved(max(0, min(1, self.mouse-x / max(1px, self.width))), max(0, min(1, 1 - self.mouse-y / max(1px, self.height))));
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.moved(max(0, min(1, self.mouse-x / max(1px, self.width))), max(0, min(1, 1 - self.mouse-y / max(1px, self.height))));
+            }
+        }
+        double-clicked => { root.recentred(); }
+    }
+}
+
+/// One option: a switch with what it does under its name, or a few choices side by side.
+component SoundOptionRow inherits HorizontalLayout {
+    in property <SoundOptionData> option;
+    callback set(string, int);
+    spacing: 12px;
+    VerticalLayout {
+        alignment: center;
+        spacing: 1px;
+        Text {
+            text: root.option.title;
+            font-size: 13px;
+            font-weight: 500;
+            color: Tokens.text;
+        }
+        if root.option.detail != "": Text {
+            text: root.option.detail;
+            font-size: 12px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+    }
+    if root.option.toggle: Toggle {
+        y: (parent.height - self.height) / 2;
+        on: root.option.on;
+        label: root.option.title;
+        toggled => { root.set(root.option.key, self.on ? 1 : 0); }
+    }
+    if !root.option.toggle: Segmented {
+        y: (parent.height - self.height) / 2;
+        options: root.option.choices;
+        selected: root.option.chosen;
+        segment-padding: 16px;
+        chosen(i) => { root.set(root.option.key, i); }
+    }
+}
+
+export component SoundPanel inherits Rectangle {
+    in property <length> anchor-left;
+    in property <length> anchor-right;
+    in property <length> anchor-top;
+    in property <float> shown: 1;
+
+    in property <bool> playing;
+    in property <string> state;
+    /// The goals, in two rows (four, then three).
+    in property <[SoundItemData]> themes-a;
+    in property <[SoundItemData]> themes-b;
+    in property <[string]> sounds;
+    in property <int> sound-index;
+    /// ASMR: its families, in two rows, each on or off, instead of the sounds.
+    in property <bool> asmr;
+    in property <[SoundItemData]> triggers-a;
+    in property <[SoundItemData]> triggers-b;
+    in property <[string]> axes;
+    in property <float> px;
+    in property <float> py;
+    in property <float> volume;
+    in property <bool> silent;
+    in property <int> ring;
+    in property <color> hue-a;
+    in property <color> hue-b;
+    in property <[SoundOptionData]> options;
+
+    callback dismissed();
+    callback play();
+    callback pick-theme(int);
+    callback pick-sound(int);
+    callback pick-trigger(int);
+    callback pad-moved(float, float);
+    callback volume-moved(float);
+    callback option-set(string, int);
+
+    Popover {
+        width: 100%;
+        height: 100%;
+        anchor-left: root.anchor-left;
+        anchor-right: root.anchor-right;
+        anchor-top: root.anchor-top;
+        card-width: 380px;
+        shown: root.shown;
+        dismissed => { root.dismissed(); }
+
+        HorizontalLayout {
+            spacing: 12px;
+            VerticalLayout {
+                alignment: center;
+                spacing: 1px;
+                Text {
+                    text: "Sound";
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                }
+                Text {
+                    text: root.state;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: root.playing ? Icons.pause : Icons.play;
+                filled: !root.playing;
+                label: root.playing ? "Pause" : "Play";
+                button-size: 34px;
+                icon-size: 18px;
+                tinted: true;
+                tint: Tokens.accent;
+                clicked => { root.play(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for t[i] in root.themes-a: Pill {
+                text: t.name;
+                icon: t.icon;
+                on: t.on;
+                toggled => { root.pick-theme(i); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for t[i] in root.themes-b: Pill {
+                text: t.name;
+                icon: t.icon;
+                on: t.on;
+                toggled => { root.pick-theme(i + 4); }
+            }
+        }
+
+        if !root.asmr: HorizontalLayout {
+            alignment: start;
+            Segmented {
+                options: root.sounds;
+                selected: root.sound-index;
+                segment-padding: 18px;
+                chosen(i) => { root.pick-sound(i); }
+            }
+        }
+        if root.asmr: HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for t[i] in root.triggers-a: Pill {
+                text: t.name;
+                icon: t.icon;
+                on: t.on;
+                toggled => { root.pick-trigger(i); }
+            }
+        }
+        if root.asmr: HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for t[i] in root.triggers-b: Pill {
+                text: t.name;
+                icon: t.icon;
+                on: t.on;
+                toggled => { root.pick-trigger(i + 4); }
+            }
+        }
+
+        SoundPad {
+            px: root.px;
+            py: root.py;
+            axes: root.axes;
+            live: root.playing;
+            silent: root.silent;
+            ring: root.ring;
+            hue-a: root.hue-a;
+            hue-b: root.hue-b;
+            moved(x, y) => { root.pad-moved(x, y); }
+            recentred => { root.pad-moved(0.5, 0.5); }
+        }
+
+        Slider {
+            value: root.volume;
+            label: "Volume";
+            moved(v) => { root.volume-moved(v); }
+        }
+
+        for o in root.options: SoundOptionRow {
+            option: o;
+            set(key, value) => { root.option-set(key, value); }
+        }
+    }
+}

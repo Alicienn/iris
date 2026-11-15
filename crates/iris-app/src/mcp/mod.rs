@@ -22,6 +22,7 @@ pub mod bridge;
 mod calendar;
 mod mail;
 mod notes;
+mod sound;
 mod tasks;
 pub mod time;
 
@@ -305,6 +306,8 @@ tells what was done over a period.\n\
 notes_syntax before writing a note: Iris has its own marks, callouts, embeds and \
 charts. Spreadsheets: sheets_read, sheets_write, sheets_add_chart. Whiteboards: \
 boards_read, boards_add, boards_update.\n\
+- Sound (generative soundscapes to work, rest or sleep to): sound_status, sound_play \
+(a theme, a sound, the volume, a session's length), sound_stop.\n\
 \n\
 Times are the user's local time, written 2026-11-06T14:30; days are 2026-11-06. \
 Ask the user before sending mail or deleting anything they did not ask you to.";
@@ -316,6 +319,7 @@ impl Handler for IrisTools {
         t.extend(calendar::tools());
         t.extend(tasks::tools());
         t.extend(notes::tools());
+        t.extend(sound::tools());
         t
     }
 
@@ -337,6 +341,8 @@ impl Handler for IrisTools {
             || name.starts_with("boards_")
         {
             notes::call(ctx, name, args)
+        } else if name.starts_with("sound_") {
+            sound::call(ctx, name, args)
         } else {
             Err(ToolError::new(format!("unknown tool: {name}")))
         };

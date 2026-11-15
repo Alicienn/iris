@@ -30,6 +30,8 @@ pub enum CommandKind {
     /// The selected conversation becomes a task.
     TaskFromThread,
     Settings,
+    /// Sound: the soundscapes' card.
+    Sound,
     Reload,
     Quit,
 }
@@ -243,6 +245,14 @@ pub fn builtin_commands() -> Vec<Command> {
             "Ctrl+,",
             "Application",
             CommandKind::Settings,
+            false,
+        ),
+        Command::new(
+            "app.sound",
+            "Sound",
+            "",
+            "Application",
+            CommandKind::Sound,
             false,
         ),
         Command::new(

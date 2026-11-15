@@ -42,6 +42,7 @@ pub mod services;
 pub mod settings;
 pub mod shell;
 pub mod single;
+pub mod sound;
 pub mod tags;
 pub mod taskbar;
 pub mod tasks;

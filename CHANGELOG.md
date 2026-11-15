@@ -3,6 +3,17 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.18.0 — 2026-11-15
+
+### New
+- Sound: soundscapes made as they play, to work, rest or sleep to, from the headphones at the foot of the side column.
+- Seven goals with their own sounds: Focus, Deep work, Block noise, Relax, Break, Sleep and ASMR.
+- A pad tunes the sound as you drag it; a double click puts it back in the middle.
+- Sessions end softly: a break ends with a bell, sleep darkens and stops on its own.
+- ASMR mixes taps, brushing, water, pages and more around your head; switch each one on or off.
+- Play and pause Sound from Windows's media controls and the keyboard's play key.
+- An assistant can play, change and stop Sound.
+
 ## 7.17.0 — 2026-11-14
 
 ### New

@@ -187,6 +187,7 @@ contract of the one before it.
                  iris-search · iris-mime
                  iris-calendar · iris-tasks · iris-growth
                  iris-notes · iris-sheets · iris-math · iris-board
+                 iris-sound (generative audio: fills buffers)
   Data           iris-store (SQLite) · iris-index (Tantivy)  local truth
                  iris-blobs (zstd + LRU)
                  iris-vault (the notes' folders)
@@ -1993,8 +1994,62 @@ with their list as `CATEGORIES`).
 
 ---
 
+## Sound (7.18.0)
+
+Soundscapes made as they play, to work, rest or sleep to. Nothing is recorded and
+nothing loops: every sample is synthesised.
+
+- **`iris-sound`** is the engine: no dependency, no I/O, it fills buffers of interleaved
+  stereo. Additive voices (pentatonic only, so no two can clash), resonant modes (taps),
+  bubbles, coloured noise, state-variable filters, a ping-pong delay and an 8-line
+  feedback-delay reverb whose input is high-passed at 200 Hz (its low modes rang on some
+  bass notes, 23 dB over their level, measured). Fourteen sounds; a theme sets a profile
+  (a ceiling on intensity, brightness, density of events, beat swell). The pad's two axes
+  map to timing (free ↔ on a grid) and intensity (density, tempo, brightness). Every
+  sound is trimmed to about −20 dBFS RMS (ASMR, sparse, to its peaks). The ASMR soundscape
+  (`asmr.rs`) renders each gesture for headphones near the head: a spherical-head model
+  (a Woodworth delay and a one-pole/one-zero head shadow per ear), the distance to each
+  ear (the near-field level difference) and a close microphone's bass lift; its families
+  play on two or three lanes side by side, each moving on to the family heard least
+  recently, so that every family switched on is heard. Unit tests render every sound at
+  the pad's corners and check every ASMR family plays.
+- **The output** (`iris-app/src/sound.rs`, `player`): a `cpal` stream (WASAPI) on a
+  thread of its own, `iris-sound`, the engine inside its callback, orders through an
+  `mpsc` channel the callback empties without waiting. The thread, the stream and the
+  engine exist only while sound plays: play opens the default output, pause fades for
+  0.3 s and closes it. `cpal` 0.18 builds on the same `windows` 0.62 as the rest. Not on
+  Android yet (the player answers that it cannot; the button is hidden): playing behind
+  the screen there needs a foreground service.
+- **The session clock**: a `slint::Timer` on the interface's thread, twice a second,
+  only acting while sound plays: fades at a session's end, a break's bell (the fade
+  stops at 12 %, the bell rings over it at the user's volume, then it stops), deep
+  work's reminder, sleep darkening, the time of day. The settings (`Settings::sound`,
+  per device, positions and levels per mille since the settings are `Eq`) are written a
+  second after the last change, not at every move of the pad.
+- **Windows's media controls** (`sound::media`): `ISystemMediaTransportControlsInterop::
+  GetForWindow` on the main window's handle, from the first play on; Play and Pause from
+  the flyout, the lock screen or the keyboard's media key come back through
+  `ButtonPressed` (another thread) and take the same path as a click.
+- **The card** (`screens/sound.slint`) is a `Popover` beside the headphones (in
+  `SidebarFoot` and `NavRail`, through `Chrome.sound`), in `modal-open` and `close-top()`.
+  The light round the pad on a change is a linear gradient under it, turning once (the
+  software renderer draws no conic gradient); the wave in the headphones is the one loop
+  of the interface, built only while sound plays.
+- **The assistant**: `sound_status`, `sound_play`, `sound_stop` (`mcp/sound.rs`), on the
+  same state as the card.
+- **Cost**: the engine's buffers are about 0.9 MB, held only while it plays. CPU,
+  measured on the same code compiled to WebAssembly (the prototype's bench, 48 kHz
+  stereo): about 1 % of a core on average, 6 % at worst (Pulse, sixteenths); natively
+  it is lower, not measured on this machine (no Windows SDK to link).
+- **Why these sounds**: from the research written for it (no lyrics, slow onsets, no
+  crescendos, dark timbres capped near 2.5 kHz, no isolated high notes, the 16 Hz boost
+  off by default, nature sounds for breaks, closeness and movement for ASMR, slow pulses
+  never at sleep). The interface describes what each option does, never a study.
+
 ## Running in the background
 
+- **Sound** (7.18.0): the `iris-sound` thread exists only while sound plays, and keeps
+  playing when the window closes to the tray; see [Sound](#sound-7180).
 - **One Iris per session.** A named mutex (`Local\Iris.SingleInstance`) and event make a
   second launch hand over to the first: it leaves any `mailto:` for it, wakes it, and
   exits. Before this, a second process found the database locked and died silently, and

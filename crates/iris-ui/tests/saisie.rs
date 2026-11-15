@@ -956,6 +956,23 @@ fn the_notes_panels_close_with_escape() {
     assert!(!f.get_notes_review_open(), "Escape closes the revision");
 }
 
+fn the_sound_card_owns_the_keyboard_and_closes_with_escape() {
+    let f = fenetre();
+    f.set_sound_available(true);
+    f.invoke_open_sound();
+    assert!(f.get_sound_open(), "the palette's Sound opens the card");
+    assert!(
+        f.get_modal_open(),
+        "the Sound card is a window over the mail: no shortcut reaches it"
+    );
+    echap(&f);
+    assert!(!f.get_sound_open(), "Escape closes the Sound card");
+    assert!(!f.get_modal_open(), "the shortcuts are back");
+    f.invoke_open_sound();
+    assert!(f.invoke_close_top(), "Android's Back closes it too");
+    assert!(!f.get_sound_open());
+}
+
 fn connecting_calendars_opens_in_the_address_and_escape_closes() {
     let f = fenetre();
     f.set_workspace(1);
@@ -3532,6 +3549,10 @@ fn main() {
         (
             "the_notes_panels_close_with_escape",
             the_notes_panels_close_with_escape,
+        ),
+        (
+            "the_sound_card_owns_the_keyboard_and_closes_with_escape",
+            the_sound_card_owns_the_keyboard_and_closes_with_escape,
         ),
         (
             "connecting_calendars_opens_in_the_address_and_escape_closes",

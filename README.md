@@ -28,6 +28,7 @@
 - <img src="docs/assets/icons/check-circle.svg" width="16" alt=""> **Tasks** — typed in one line (`tomorrow 9am Call Marie #Work !!`), planned into your free time.
 - <img src="docs/assets/icons/target.svg" width="16" alt=""> **Goals and habits** — the pace a goal needs, habits ticked day by day with their streaks.
 - <img src="docs/assets/icons/file-text.svg" width="16" alt=""> **Notes** — Markdown files written as they look, with LaTeX, flashcards, spreadsheets and whiteboards.
+- <img src="docs/assets/icons/headphones.svg" width="16" alt=""> **Sound** — soundscapes made as they play, to focus, block noise, relax or fall asleep; a pad tunes them.
 - <img src="docs/assets/icons/refresh.svg" width="16" alt=""> **Sync between your devices** — over your Wi-Fi, paired with a QR code, no account and no cloud.
 - <img src="docs/assets/icons/smartphone.svg" width="16" alt=""> **Any width** — the same Iris on a wide screen, a narrow window, a foldable or a phone.
 - <img src="docs/assets/icons/zap.svg" width="16" alt=""> **Instant** — opening, archiving and searching never wait, even with hundreds of thousands of messages.
@@ -308,14 +309,43 @@ them; an Obsidian vault opens as it is.
 | `Question :: Answer` | A flashcard | |
 | `/` | Every block, with a preview | |
 
+## Sound
+
+The headphones at the foot of the side column (or *Sound* in the command palette) open a
+card that plays soundscapes made as they play: nothing is recorded, nothing loops, it
+never ends. Pick a goal, then a sound:
+
+| Goal | For | Sounds |
+|---|---|---|
+| **Focus** | everyday work | Drift, Pulse, Keys, Rain |
+| **Deep work** | reading, writing, hard problems | Drone, Stream, Noise, Silence |
+| **Block noise** | an open office, a café | Noise, Stream, Rain, Shore |
+| **Relax** | unwinding, with an optional breathing guide | Drift, Keys, Shore, Stream |
+| **Break** | a few minutes away, then a soft bell | Forest, Shore, Stream |
+| **Sleep** | falling asleep: it darkens and stops by itself | Drone, Rain, Shore, Noise |
+| **ASMR** | close, quiet sounds around your head (headphones) | taps, scratching, paper, brush, water, sand, pages — each on or off |
+
+- **The pad** tunes the sound: drag the puck or click where it should go; a double click
+  puts it back in the middle. Its words change with the goal (fluid ↔ structured, easy ↔
+  intense; for ASMR, still ↔ around you, sparse ↔ dense).
+- **Options**, per goal: *Focus boost* (a light fast pulse, off by default, not with
+  epilepsy), *Follow the time of day* (darker in the evening), *Break reminder* (a bell
+  every 50 or 90 minutes in deep work), a session's length, *End with a bell*,
+  *Darken as it plays*.
+- Each goal remembers its sound, pad and options. While sound plays, a small wave moves
+  in the headphones. **Windows's media controls** (the volume flyout, the lock screen)
+  and the keyboard's play/pause key play and pause it, as for any music player.
+- Nothing runs while it is paused: the sound output opens on play and closes on pause.
+
 ## An AI assistant
 
 An assistant that speaks MCP (Claude Desktop, Claude Code and others) can work in Iris
 for you: search the mail with every filter, read conversations, mark, file, snooze and
 send; see the calendar by day or week, create, move and delete events with their notes,
 meeting links and subtasks; manage tasks, habits and goals; browse note spaces, read and
-write notes in Iris's full syntax, fill spreadsheets and charts, and read and draw on
-whiteboards (shapes, sticky notes and the arrows between them).
+write notes in Iris's full syntax, fill spreadsheets and charts, read and draw on
+whiteboards (shapes, sticky notes and the arrows between them), and play, change or
+stop Sound.
 
 1. *Settings › System › **Let an AI assistant use Iris***.
 2. **Copy setup**, and paste it into the assistant's MCP settings
@@ -406,6 +436,8 @@ over a choice made before it arrived.
   are added and synced in the window.
 - An assistant reaches Iris only while Iris runs on the same computer; it cannot add
   accounts, change settings or answer invitations.
+- Sound plays on Windows only: not yet on Android (playing behind the screen there needs
+  a service of its own). It follows the system's default output, chosen when it starts.
 
 ## Privacy
 

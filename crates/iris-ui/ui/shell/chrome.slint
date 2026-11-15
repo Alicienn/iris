@@ -21,6 +21,13 @@ export global Chrome {
     in-out property <bool> can-go-forward;
     in-out property <int> mail-badge;
     in-out property <int> tasks-badge;
+    /// Sound (7.18.0): whether this device can play it, whether it plays, and where the
+    /// button that opened its card was (the card opens beside it).
+    in-out property <bool> sound-available;
+    in-out property <bool> sound-playing;
+    in-out property <length> sound-anchor-left;
+    in-out property <length> sound-anchor-right;
+    in-out property <length> sound-anchor-top;
 
     // What the frame asks of the window. A global's callbacks can only be answered
     // from Rust, so the frame posts a request (its word, a number with it) and raises
@@ -49,6 +56,12 @@ export global Chrome {
     public function forward() { root.ask("forward", 0); }
     public function settings() { root.ask("settings", 0); }
     public function palette() { root.ask("palette", 0); }
+    public function sound(left: length, right: length, top: length) {
+        root.sound-anchor-left = left;
+        root.sound-anchor-right = right;
+        root.sound-anchor-top = top;
+        root.ask("sound", 0);
+    }
     public function drag-started() { root.drag-start-id += 1; }
     public function drag(dx: length, dy: length) {
         root.drag-dx = dx;
@@ -508,6 +521,59 @@ component FootButton inherits Rectangle {
     }
 }
 
+/// Sound: the headphones. While sound plays, they take the accent and a little wave
+/// moves between the ear cups: the one animation that loops, shown only while sound is
+/// under way (it stops with it, and nothing repaints when nothing plays).
+export component SoundButton inherits Rectangle {
+    in property <length> icon-size: 15px;
+    in property <length> box: 24px;
+
+    width: root.box;
+    height: root.box;
+
+    accessible-role: button;
+    accessible-label: Chrome.sound-playing ? "Sound, playing" : "Sound";
+    accessible-action-default => { root.open(); }
+
+    function open() {
+        Chrome.sound(root.absolute-position.x, root.absolute-position.x + root.width, root.absolute-position.y + root.height);
+    }
+
+    Rectangle {
+        border-radius: Tokens.radius-small;
+        background: touch.has-hover ? Tokens.surface-hover : transparent;
+    }
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        data: Icons.headphones;
+        size: root.icon-size;
+        tint: Chrome.sound-playing ? Tokens.accent : Tokens.text-muted;
+    }
+    if Chrome.sound-playing: Rectangle {
+        x: (parent.width - root.icon-size) / 2;
+        y: (parent.height - root.icon-size) / 2;
+        width: root.icon-size;
+        height: root.icon-size;
+        property <float> t: animation-tick() / 1ms / 1000;
+        for i in 3: Rectangle {
+            property <float> wave: 0.5 + 0.5 * sin(360deg * (parent.t * (1.0 + 0.13 * i) + i * 0.31));
+            width: root.icon-size * 0.05;
+            height: root.icon-size * 0.3 * (0.3 + 0.7 * self.wave);
+            x: root.icon-size * (10 + 2 * i) / 24 - self.width / 2;
+            y: root.icon-size * 17 / 24 - self.height / 2;
+            border-radius: self.width / 2;
+            background: Tokens.accent;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.open(); }
+    }
+    Tooltip {
+        text: @markdown("Sound");
+    }
+}
+
 /// The foot of every side column: the settings, and search and commands. Drawn in the
 /// status bar's stretch under the column, flush with the window's bottom edge; in a
 /// folded column, the gear alone.
@@ -521,6 +587,9 @@ export component SidebarFoot inherits HorizontalLayout {
         shortcut: "Ctrl+,";
         text: root.compact ? "" : "Settings";
         clicked => { Chrome.settings(); }
+    }
+    if Chrome.sound-available: SoundButton {
+        y: (parent.height - self.height) / 2;
     }
     Rectangle { horizontal-stretch: 1; }
     if !root.compact: FootButton {

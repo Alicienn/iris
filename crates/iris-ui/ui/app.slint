@@ -12,7 +12,9 @@ import {
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
     NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData,
-    HabitData, HabitCellData, HabitDetailData, EverywhereHitData, SyncStepData } from "@iris/types.slint";
+    HabitData, HabitCellData, HabitDetailData, EverywhereHitData, SyncStepData,
+    SoundItemData, SoundOptionData } from "@iris/types.slint";
+import { SoundPanel } from "@iris/screens/sound.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
 import { Button, ButtonKind, ButtonSize, Link, Fab } from "@iris/controls/button.slint";
@@ -696,6 +698,45 @@ export component AppWindow inherits Window {
     in-out property <bool> new-smtp-tls: true;
 
     in-out property <bool> settings-open;
+
+    // Sound (7.18.0): the card, and what Rust puts in it (`iris-app/src/sound.rs`).
+    in-out property <bool> sound-open;
+    property <float> sound-shown: root.sound-open ? 1 : 0;
+    animate sound-shown { duration: Motion.travel; easing: Motion.soft; }
+    in-out property <bool> sound-available <=> Chrome.sound-available;
+    in-out property <bool> sound-playing <=> Chrome.sound-playing;
+    in property <string> sound-state;
+    in property <[SoundItemData]> sound-themes-a;
+    in property <[SoundItemData]> sound-themes-b;
+    in property <[string]> sound-names;
+    in property <int> sound-index;
+    in property <bool> sound-asmr;
+    in property <[SoundItemData]> sound-triggers-a;
+    in property <[SoundItemData]> sound-triggers-b;
+    in property <[string]> sound-axes;
+    in property <float> sound-x;
+    in property <float> sound-y;
+    in property <float> sound-volume;
+    in property <bool> sound-silent;
+    in-out property <int> sound-ring;
+    in property <color> sound-hue-a;
+    in property <color> sound-hue-b;
+    in property <[SoundOptionData]> sound-options;
+    callback sound-play();
+    callback sound-theme(int);
+    callback sound-pick(int);
+    callback sound-trigger(int);
+    callback sound-move(float, float);
+    callback sound-volume-set(float);
+    callback sound-option(string, int);
+    /// From the command palette: the card at the foot of the side column.
+    public function open-sound() {
+        Chrome.sound-anchor-left = 8px;
+        Chrome.sound-anchor-right = 40px;
+        Chrome.sound-anchor-top = root.height;
+        root.sound-open = true;
+    }
+
     /// The accent colour chosen in Settings, its place among those offered.
     in-out property <int> accent-index;
     callback accent-chosen(int);
@@ -1718,6 +1759,10 @@ export component AppWindow inherits Window {
             root.shortcuts-help-open = false;
             return true;
         }
+        if (root.sound-open) {
+            root.sound-open = false;
+            return true;
+        }
         if (root.camera-help-open) {
             root.camera-help-open = false;
             return true;
@@ -2259,7 +2304,8 @@ export component AppWindow inherits Window {
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
         || root.task-later-open || root.task-slot-open || root.tasks-menu != ""
         || root.task-archive-open || root.task-archive-asked.key != ""
-        || root.habit-new-open || root.habit-delete-open;
+        || root.habit-new-open || root.habit-delete-open
+        || root.sound-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -2594,6 +2640,8 @@ export component AppWindow inherits Window {
             shortcuts.focus();
         } else if (Chrome.request == "settings") {
             root.settings-open = true;
+        } else if (Chrome.request == "sound") {
+            root.sound-open = !root.sound-open;
         } else if (Chrome.request == "palette") {
             // On a phone, Home's magnifier: the search everywhere, as a page.
             if (Layout.compact) {
@@ -5436,6 +5484,41 @@ export component AppWindow inherits Window {
             width: 100%;
             height: 100%;
             dismissed => { root.shortcuts-help-open = false; }
+        }
+
+        if root.sound-open || (Layout.compact && root.sound-shown > 0): SoundPanel {
+            width: 100%;
+            height: 100%;
+            anchor-left: Chrome.sound-anchor-left;
+            anchor-right: Chrome.sound-anchor-right;
+            anchor-top: Chrome.sound-anchor-top;
+            shown: root.sound-shown;
+            playing: root.sound-playing;
+            state: root.sound-state;
+            themes-a: root.sound-themes-a;
+            themes-b: root.sound-themes-b;
+            sounds: root.sound-names;
+            sound-index: root.sound-index;
+            asmr: root.sound-asmr;
+            triggers-a: root.sound-triggers-a;
+            triggers-b: root.sound-triggers-b;
+            axes: root.sound-axes;
+            px: root.sound-x;
+            py: root.sound-y;
+            volume: root.sound-volume;
+            silent: root.sound-silent;
+            ring: root.sound-ring;
+            hue-a: root.sound-hue-a;
+            hue-b: root.sound-hue-b;
+            options: root.sound-options;
+            dismissed => { root.sound-open = false; }
+            play => { root.sound-play(); }
+            pick-theme(i) => { root.sound-theme(i); }
+            pick-sound(i) => { root.sound-pick(i); }
+            pick-trigger(i) => { root.sound-trigger(i); }
+            pad-moved(x, y) => { root.sound-move(x, y); }
+            volume-moved(v) => { root.sound-volume-set(v); }
+            option-set(key, value) => { root.sound-option(key, value); }
         }
 
         if root.changelog-open: ChangelogPanel {

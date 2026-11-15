@@ -1,7 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
-import { Chrome } from "@iris/shell/chrome.slint";
+import { Chrome, SoundButton } from "@iris/shell/chrome.slint";
 import { Motion } from "@iris/theme/motion.slint";
 
 // The five places down the left of a window of medium width (an open foldable, a
@@ -121,5 +121,12 @@ export component NavRail inherits Rectangle {
         TouchArea {
             clicked => { Chrome.settings(); }
         }
+    }
+    // Sound, above the settings.
+    if Chrome.sound-available: SoundButton {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 16px - 44px - 8px;
+        box: 44px;
+        icon-size: 22px;
     }
 }
