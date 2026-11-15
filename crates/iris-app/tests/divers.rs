@@ -83,6 +83,7 @@ mod cablage {
             "crates/iris-app/src/caldav.rs",
             "crates/iris-app/src/devices.rs",
             "crates/iris-app/src/permissions.rs",
+            "crates/iris-app/src/sound.rs",
             "crates/iris-app/src/notes/mod.rs",
             "crates/iris-app/src/notes/saisie.rs",
         ]
