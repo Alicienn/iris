@@ -23,6 +23,11 @@
 //! - an optional breathing swell at 6 breaths a minute (0.1 Hz);
 //! - darker and slower in the evening (time of day, a design choice, not evidence).
 
+// Signal code walks several parallel arrays with one index (a voice's phases, amplitudes,
+// decays; a reverb's lines, lengths, gains): an index reads better here than zipped
+// iterators. Clippy 1.100 flags far more of these loops than 1.95 did.
+#![allow(clippy::needless_range_loop)]
+
 use std::f32::consts::PI;
 
 mod asmr;

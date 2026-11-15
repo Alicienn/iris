@@ -600,11 +600,11 @@ impl Asmr {
                     rng.range(0.0012, 0.004)
                 } * rate;
                 let peak = rng.range(0.2, 0.8);
-                for j in 0..n {
+                for (j, tap) in g.taps.iter_mut().enumerate().take(n) {
                     let u = (j as f32 + 0.5) / n as f32;
                     let contour = 0.4 + 0.6 * (1.0 - ((u - peak) / 0.6).powi(2)).max(0.0);
                     let alt = if shape == 2 && j % 2 == 1 { 0.75 } else { 1.0 };
-                    g.taps[j] = (
+                    *tap = (
                         at_s,
                         contour * alt * rng.range(0.7, 1.0),
                         tau * rng.range(0.8, 1.25),
