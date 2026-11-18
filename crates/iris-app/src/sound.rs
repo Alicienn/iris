@@ -435,6 +435,8 @@ pub fn toggle() {
         s.pause();
     } else {
         s.play();
+        // The light goes round the pad: sound has begun.
+        s.ring += 1;
     }
     drop(s);
     refresh_later();

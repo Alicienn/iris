@@ -458,7 +458,7 @@ component ThreadRow inherits Rectangle {
                 }
                 if !root.airy: Text {
                     text: root.data.preview;
-                    font-size: 12.5px;
+                    font-size: 13px;
                     color: root.encre-douce;
                     vertical-alignment: center;
                     overflow: elide;
@@ -494,7 +494,7 @@ component ThreadRow inherits Rectangle {
 
             if root.airy: Text {
                 text: root.data.preview;
-                font-size: root.tel ? 14px : 12.5px;
+                font-size: root.tel ? 14px : 13px;
                 color: root.encre-douce;
                 overflow: elide;
             }
@@ -708,7 +708,7 @@ export component ThreadContextMenu inherits Rectangle {
                 }
                 Text {
                     text: root.from + (root.message-count > 1 ? " · " + root.message-count + " messages" : "");
-                    font-size: 13.5px;
+                    font-size: 13px;
                     color: Tokens.text-muted;
                     overflow: elide;
                 }

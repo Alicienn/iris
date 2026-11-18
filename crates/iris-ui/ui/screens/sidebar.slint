@@ -220,7 +220,7 @@ component AccountRow inherits Rectangle {
             label: root.account.problem != ""
                 ? "Sync failed: " + root.account.problem + ". Click for details."
                 : "Fix " + root.account.label;
-            icon-size: 15px;
+            icon-size: 16px;
             button-size: 20px;
             tint: Tokens.error;
             tinted: true;
@@ -240,7 +240,7 @@ component AccountRow inherits Rectangle {
             label: root.just-synced
                 ? "Syncing " + root.account.label + "…"
                 : "Sync " + root.account.label;
-            icon-size: 13px;
+            icon-size: 14px;
             button-size: 20px;
             tint: root.plate ? Tokens.accent-text : Tokens.accent;
             tinted: root.just-synced || root.plate;
@@ -380,7 +380,7 @@ export component Sidebar inherits Rectangle {
             Text {
                 text: "Mailboxes";
                 font-family: Tokens.font-display;
-                font-size: 19px;
+                font-size: 18px;
                 font-weight: 600;
                 color: Tokens.text;
                 vertical-alignment: center;
@@ -508,7 +508,7 @@ export component Sidebar inherits Rectangle {
             accessible-label: "Filter accounts";
             placeholder-text: "Filter accounts";
             icon: Icons.search;
-            font-size: 13.5px;
+            font-size: 13px;
             height: 32px;
             text <=> root.filter;
             init => { self.focus(); }

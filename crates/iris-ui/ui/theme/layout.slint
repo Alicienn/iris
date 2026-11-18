@@ -36,4 +36,19 @@ export global Layout {
     in-out property <float> text-scale: 1.0;
     /// The least height a thing to press may have.
     out property <length> target: touch-input ? 48px : 28px;
+
+    // The sizes of the buttons that are an icon alone, three of them and no others
+    // (7.19.0). Every place uses the same: a toolbar's buttons were 28, 30 or 32
+    // pixels with icons from 16 to 18, from one screen to the next.
+    //
+    /// A place's toolbar, at the top, left of the window's buttons.
+    out property <length> toolbar-button: touch-input ? 44px : 30px;
+    out property <length> toolbar-icon: touch-input ? 22px : 18px;
+    /// The side column's head and foot: back and forward, the places, settings,
+    /// sound, search; a tab bar's new tab.
+    out property <length> chrome-button: touch-input ? 44px : 28px;
+    out property <length> chrome-icon: touch-input ? 20px : 16px;
+    /// Inside a row or a tab: a tab's close, a row's own actions.
+    out property <length> inline-button: touch-input ? 36px : 22px;
+    out property <length> inline-icon: touch-input ? 16px : 13px;
 }

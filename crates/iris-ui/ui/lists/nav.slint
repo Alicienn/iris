@@ -16,12 +16,12 @@ export global Nav {
     /// A row of every side column, as Apple's source lists have them.
     // On a phone, the mockups' sheet rows: a finger's height, larger words.
     out property <length> row-height: Layout.compact ? 46px : 32px;
-    out property <length> label-size: Layout.compact ? 15.5px : 14px;
+    out property <length> label-size: Layout.compact ? 15px : 14px;
     /// What leads a row (a view's, a folder's icon), the room between a row's parts,
     /// and its count.
-    out property <length> icon-size: 17px;
+    out property <length> icon-size: 16px;
     out property <length> row-gap: 9px;
-    out property <length> count-size: 12.5px;
+    out property <length> count-size: 12px;
     /// A mailbox's, a to-plan task's dot; a calendar's square check.
     out property <length> dot-size: 9px;
     out property <length> check-size: 15px;
@@ -32,7 +32,7 @@ export global Nav {
     out property <length> section-height: 36px;
     out property <length> section-button: 26px;
     out property <length> section-icon: 16px;
-    out property <length> section-plus: 17px;
+    out property <length> section-plus: 16px;
     /// The fold chevron before a section's title, and the room it is drawn in.
     out property <length> fold-size: 12px;
     out property <length> fold-room: 18px;
@@ -214,7 +214,7 @@ export component NavItem inherits Rectangle {
             accessible-action-default => { root.fold-toggled(); }
             Icon {
                 data: root.folded ? Icons.chevron-right : Icons.chevron-down;
-                size: 13px;
+                size: 14px;
                 tint: Nav.count-ink(root.selected);
             }
         }

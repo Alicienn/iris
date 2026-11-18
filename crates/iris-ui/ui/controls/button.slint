@@ -80,14 +80,14 @@ export component Button inherits Rectangle {
             if root.icon != "": Icon {
                 y: (parent.height - self.height) / 2;
                 data: root.icon;
-                size: root.size == ButtonSize.sm ? 14px : 15px;
+                size: root.size == ButtonSize.sm ? 14px : 16px;
                 weight: 1.6;
                 tint: root.encre;
                 alpha: root.busy ? 0.45 : 1.0;
             }
             if root.text != "": Text {
                 text: root.text;
-                font-size: root.size == ButtonSize.sm ? 12.5px : 13px;
+                font-size: root.size == ButtonSize.sm ? 13px : 13px;
                 font-weight: root.plein ? 500 : 400;
                 color: root.encre;
                 vertical-alignment: center;
@@ -208,7 +208,7 @@ export component Fab inherits Rectangle {
         }
         Text {
             text: root.text;
-            font-size: 15.5px;
+            font-size: 15px;
             font-weight: 600;
             color: Tokens.accent-text;
             vertical-alignment: center;

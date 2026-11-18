@@ -3,6 +3,27 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.19.0 — 2026-11-19
+
+### New
+- Ctrl+F finds words in the note open; Enter and Shift+Enter go from one to the next.
+- Space plays and pauses Sound while its card is open.
+
+### Improved
+- Buttons, icons and text share the same few sizes in every place.
+- The emoji list is more compact, one line per emoji.
+- The status bar's memory and CPU match what Task Manager shows.
+- The light round Sound's pad is easier to see, and plays when sound starts.
+
+### Fixed
+- Attachments open and save again when their message has left the cache.
+- Rename in a note's right-click menu puts the cursor in the name at once.
+- Shift+Backspace erases in notes.
+- The heart emoji is red, not white.
+- Up and Down move through the emoji list.
+- A click in a table's cell puts the cursor in that cell, not the row's first.
+- Up and Down move line by line inside a table's cell of several lines.
+
 ## 7.18.0 — 2026-11-15
 
 ### New

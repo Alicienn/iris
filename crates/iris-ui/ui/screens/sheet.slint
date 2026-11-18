@@ -194,7 +194,7 @@ component WordButton inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     mot := Text {
         text: root.text;
-        font-size: 12.5px;
+        font-size: 13px;
         color: Tokens.text-secondary;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -218,7 +218,7 @@ component ChartColumn inherits Rectangle {
         spacing: 4px;
         Text {
             text: root.text;
-            font-size: 12.5px;
+            font-size: 13px;
             color: Tokens.text;
             vertical-alignment: center;
             overflow: elide;
@@ -296,7 +296,7 @@ component ChartSettings inherits VerticalLayout {
     }
     if SheetGrid.chart-values.length == 0: Text {
         text: "Each row counts as one.";
-        font-size: 12.5px;
+        font-size: 13px;
         color: Tokens.text-muted;
         wrap: word-wrap;
     }
@@ -972,7 +972,7 @@ export component SheetView inherits Rectangle {
                 background: Layout.compact ? transparent : Tokens.surface-low;
                 Text {
                     text: SheetGrid.address;
-                    font-size: Layout.compact ? 13px : 12.5px;
+                    font-size: Layout.compact ? 13px : 13px;
                     font-weight: Layout.compact ? 700 : 600;
                     color: Layout.compact ? Tokens.text-muted : Tokens.text-secondary;
                     horizontal-alignment: Layout.compact ? TextHorizontalAlignment.left : TextHorizontalAlignment.center;
@@ -1058,7 +1058,7 @@ export component SheetView inherits Rectangle {
                     background: c.selected ? Tokens.accent.transparentize(0.86) : transparent;
                     Text {
                         text: c.label;
-                        font-size: 11.5px;
+                        font-size: 12px;
                         font-weight: c.selected ? 600 : 400;
                         color: c.selected ? Tokens.accent : Tokens.text-muted;
                         horizontal-alignment: center;
@@ -1115,7 +1115,7 @@ export component SheetView inherits Rectangle {
                     background: r.selected ? Tokens.accent.transparentize(0.86) : root.entete-fond;
                     Text {
                         text: r.label;
-                        font-size: 11.5px;
+                        font-size: 12px;
                         font-weight: r.selected ? 600 : 400;
                         color: r.selected ? Tokens.accent : Tokens.text-muted;
                         horizontal-alignment: center;
@@ -1359,7 +1359,7 @@ export component SheetView inherits Rectangle {
                 border-color: Tokens.border-strong;
                 onglet := Text {
                     text: s;
-                    font-size: Layout.compact ? 13.5px : 12.5px;
+                    font-size: Layout.compact ? 13px : 13px;
                     font-weight: parent.actif ? 600 : 400;
                     color: Layout.compact
                         ? (parent.actif ? Tokens.accent : Tokens.text-secondary)
@@ -1401,14 +1401,14 @@ export component SheetView inherits Rectangle {
                     x: Layout.compact ? 12px : 9px;
                     y: (parent.height - self.height) / 2;
                     data: Icons.chart;
-                    size: 13px;
+                    size: 14px;
                     tint: parent.actif ? (Layout.compact ? Tokens.accent : Tokens.text) : Tokens.text-secondary;
                 }
                 nom-graphique := Text {
                     x: Layout.compact ? 30px : 26px;
                     height: parent.height;
                     text: c;
-                    font-size: Layout.compact ? 13.5px : 12.5px;
+                    font-size: Layout.compact ? 13px : 13px;
                     font-weight: parent.actif ? 600 : 400;
                     color: Layout.compact
                         ? (parent.actif ? Tokens.accent : Tokens.text-secondary)
@@ -1432,7 +1432,7 @@ export component SheetView inherits Rectangle {
                 icon: Icons.plus;
                 label: "New sheet";
                 button-size: 24px;
-                icon-size: 13px;
+                icon-size: 14px;
                 clicked => { SheetGrid.action("sheet-add"); touches.focus(); }
             }
             if Layout.compact: Rectangle {
@@ -1460,7 +1460,7 @@ export component SheetView inherits Rectangle {
             Rectangle { horizontal-stretch: 1; }
             Text {
                 text: SheetGrid.status;
-                font-size: Layout.compact ? 13.5px : 12px;
+                font-size: Layout.compact ? 13px : 12px;
                 color: Tokens.text-muted;
                 vertical-alignment: center;
                 overflow: elide;

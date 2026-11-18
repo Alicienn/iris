@@ -135,7 +135,7 @@ component WinButton inherits Rectangle {
 
     Icon {
         data: root.glyph;
-        size: 17px;
+        size: Layout.chrome-icon;
         weight: 1.4;
         tint: root.closes && touch.has-hover ? #ffffff : Tokens.text;
     }
@@ -173,11 +173,11 @@ component NavArrow inherits Rectangle {
     in property <string> shortcut;
     in property <bool> enabled;
     /// Narrower in a folded column, where the two must fit side by side.
-    in property <length> size: 26px;
+    in property <length> size: Layout.chrome-button;
     callback clicked();
 
     width: root.size;
-    height: 24px;
+    height: Layout.chrome-button;
     border-radius: Tokens.radius-small;
     background: root.enabled && touch.has-hover ? Tokens.surface-hover : transparent;
 
@@ -189,7 +189,7 @@ component NavArrow inherits Rectangle {
 
     Icon {
         data: root.glyph;
-        size: 14px;
+        size: Layout.chrome-icon;
         weight: 1.8;
         tint: root.enabled ? Tokens.text-muted : Tokens.text-faint;
     }
@@ -280,7 +280,7 @@ component PlaceTab inherits Rectangle {
 
     Icon {
         data: root.icon;
-        size: 15px;
+        size: Layout.chrome-icon;
         tint: root.on || touch.has-hover ? Tokens.text : Tokens.text-muted;
     }
     Rectangle {
@@ -486,8 +486,9 @@ component FootButton inherits Rectangle {
     in property <string> text: root.label;
     callback clicked();
 
-    width: rang.preferred-width + 16px;
-    height: 24px;
+    // Square when it is an icon alone (search), as the sound beside it.
+    width: root.text == "" ? Layout.chrome-button : rang.preferred-width + 16px;
+    height: Layout.chrome-button;
     border-radius: Tokens.radius-small;
     background: touch.has-hover ? Tokens.surface-hover : transparent;
 
@@ -497,13 +498,13 @@ component FootButton inherits Rectangle {
     accessible-action-default => { root.clicked(); }
 
     rang := HorizontalLayout {
-        x: 8px;
+        x: root.text == "" ? (parent.width - Layout.chrome-icon) / 2 : 8px;
         width: self.preferred-width;
         spacing: 8px;
         Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: 15px;
+            size: Layout.chrome-icon;
             tint: Tokens.text-muted;
         }
         if root.text != "": Text {
@@ -525,8 +526,8 @@ component FootButton inherits Rectangle {
 /// moves between the ear cups: the one animation that loops, shown only while sound is
 /// under way (it stops with it, and nothing repaints when nothing plays).
 export component SoundButton inherits Rectangle {
-    in property <length> icon-size: 15px;
-    in property <length> box: 24px;
+    in property <length> icon-size: Layout.chrome-icon;
+    in property <length> box: Layout.chrome-button;
 
     width: root.box;
     height: root.box;

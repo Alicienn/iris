@@ -1081,3 +1081,19 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       the wave in the headphones while it plays; the palette's *Sound* (7.18.0).
 - [x] **S59.4** Windows's media controls and the keyboard's media key play and pause it;
       the assistant's `sound_status`, `sound_play`, `sound_stop` (7.18.0).
+
+## E60 — One size of each, and fixes (7.19.0)
+
+- [x] **S60.1** Ctrl+F in a note: a bar over the page finds the words (case aside),
+      every place marked, Enter / Shift+Enter (F3) from one to the next, the count
+      beside them (7.19.0).
+- [x] **S60.2** Three sizes of icon button, in `Layout`: a toolbar's (30/18), the side
+      column's head and foot and a tab bar's new tab (28/16), a row's or a tab's own
+      (22/13); text sizes snapped to whole pixels of one scale, icons to 12/14/16/18/22
+      (7.19.0).
+- [x] **S60.3** Fixes: attachments whose message left the cache downloaded again; Rename
+      from a note's menu typing at once; Shift+Backspace; the red heart (the colour emoji
+      font for `U+FE0F` sequences); Up and Down in the emoji list, made one line per
+      emoji; a table's cell found by its width (clicks and Up/Down); the status bar's
+      memory and CPU as Task Manager counts them; Space plays Sound, its light easier to
+      see (7.19.0).

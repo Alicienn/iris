@@ -354,12 +354,12 @@ export component Pill inherits Rectangle {
         if root.icon != "": Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: root.grand ? 16px : 13px;
+            size: root.grand ? 16px : 14px;
             tint: root.encre;
         }
         Text {
             text: root.text;
-            font-size: root.grand ? 14px : 12.5px;
+            font-size: root.grand ? 14px : 13px;
             font-weight: root.on || root.tinted ? 600 : 400;
             color: root.encre;
             vertical-alignment: center;

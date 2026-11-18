@@ -33,7 +33,7 @@ component IconTile inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         data: root.icon;
-        size: Layout.compact ? 18px : 13px;
+        size: Layout.compact ? 18px : 14px;
         weight: 2;
         tint: Tokens.accent-text;
     }
@@ -77,13 +77,13 @@ component SettingRow inherits Rectangle {
             horizontal-stretch: 1;
             Text {
                 text: root.label;
-                font-size: Layout.compact ? 15.5px : 13px;
+                font-size: Layout.compact ? 15px : 13px;
                 color: Tokens.text;
                 wrap: word-wrap;
             }
             if root.hint != "": Text {
                 text: root.hint;
-                font-size: Layout.compact ? 13px : 11.5px;
+                font-size: Layout.compact ? 13px : 12px;
                 color: Tokens.text-muted;
                 wrap: word-wrap;
             }
@@ -137,7 +137,7 @@ component GroupTitle inherits HorizontalLayout {
     height: Layout.compact || root.note ? self.preferred-height : 26px;
     Text {
         text: root.text;
-        font-size: !Layout.compact ? 12px : root.note ? 12.5px : 13px;
+        font-size: !Layout.compact ? 12px : root.note ? 13px : 13px;
         font-weight: root.note ? 400 : 600;
         color: root.ink;
         vertical-alignment: bottom;
@@ -285,7 +285,7 @@ component PhoneRow inherits Rectangle {
             horizontal-stretch: root.centred ? 0 : 1;
             Text {
                 text: root.label;
-                font-size: 15.5px;
+                font-size: 15px;
                 font-weight: root.strong ? 600 : 400;
                 color: root.ink;
                 horizontal-alignment: root.centred ? center : left;
@@ -316,7 +316,7 @@ component PhoneRow inherits Rectangle {
         }
         if root.value != "": Text {
             text: root.value;
-            font-size: 14.5px;
+            font-size: 15px;
             color: Tokens.text-muted;
             vertical-alignment: center;
         }
@@ -545,7 +545,7 @@ component ChangeLine inherits VerticalLayout {
         Text {
             text: root.entry.text;
             font-family: Tokens.font-display;
-            font-size: 17px;
+            font-size: 18px;
             font-weight: 600;
             color: Tokens.text;
             vertical-alignment: bottom;
@@ -559,7 +559,7 @@ component ChangeLine inherits VerticalLayout {
     }
     if root.entry.kind == 1: Text {
         text: root.entry.text;
-        font-size: 12.5px;
+        font-size: 13px;
         font-weight: 600;
         color: Tokens.text-muted;
         // Above a section, the room of `margin-top: 10px`.
@@ -568,7 +568,7 @@ component ChangeLine inherits VerticalLayout {
     }
     if root.entry.kind == 2: Text {
         text: "· " + root.entry.text;
-        font-size: 14.5px;
+        font-size: 15px;
         color: Tokens.text-secondary;
         wrap: word-wrap;
         height: self.preferred-height + 4px;
@@ -990,7 +990,7 @@ export component SettingsPanel inherits Rectangle {
                         padding-bottom: 8px;
                         TextField {
                             height: 40px;
-                            font-size: 15.5px;
+                            font-size: 15px;
                             accessible-label: "Your first name";
                             placeholder-text: "First name";
                             text <=> root.first-name;
@@ -1483,7 +1483,7 @@ export component SettingsPanel inherits Rectangle {
                         }
                         Text {
                             text: "A";
-                            font-size: 21px;
+                            font-size: 22px;
                             color: Tokens.text;
                             vertical-alignment: center;
                         }
@@ -2343,14 +2343,14 @@ export component SettingsPanel inherits Rectangle {
                         TextField {
                             accessible-label: "Google client ID";
                             placeholder-text: "Client ID (….apps.googleusercontent.com)";
-                            font-size: 12.5px;
+                            font-size: 13px;
                             text <=> root.google-client-id;
                             edited(t) => { root.oauth-changed(); }
                         }
                         TextField {
                             accessible-label: "Google client secret";
                             placeholder-text: "Client secret";
-                            font-size: 12.5px;
+                            font-size: 13px;
                             input-type: InputType.password;
                             text <=> root.google-client-secret;
                             edited(t) => { root.oauth-changed(); }
@@ -2367,7 +2367,7 @@ export component SettingsPanel inherits Rectangle {
                             height: 26px;
                             accessible-label: "Microsoft client ID";
                             placeholder-text: "Application (client) ID";
-                            font-size: 12.5px;
+                            font-size: 13px;
                             text <=> root.microsoft-client-id;
                             edited(t) => { root.oauth-changed(); }
                         }

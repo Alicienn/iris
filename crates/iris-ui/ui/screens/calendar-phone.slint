@@ -349,14 +349,14 @@ component AgendaDay inherits HorizontalLayout {
     spacing: 10px;
     Text {
         text: root.text;
-        font-size: 14.5px;
+        font-size: 15px;
         font-weight: 600;
         color: root.today ? Tokens.accent : Tokens.text;
         vertical-alignment: bottom;
     }
     Text {
         text: root.note;
-        font-size: 13.5px;
+        font-size: 13px;
         color: Tokens.text-muted;
         vertical-alignment: bottom;
         overflow: elide;
@@ -398,13 +398,13 @@ component AgendaLine inherits Rectangle {
             alignment: start;
             Text {
                 text: root.item.time;
-                font-size: 13.5px;
+                font-size: 13px;
                 color: Tokens.text-secondary;
                 horizontal-alignment: right;
             }
             if !root.tight && root.item.length != "": Text {
                 text: root.item.length;
-                font-size: 12.5px;
+                font-size: 13px;
                 color: Tokens.text-muted;
                 horizontal-alignment: right;
             }
@@ -420,7 +420,7 @@ component AgendaLine inherits Rectangle {
             spacing: 2px;
             Text {
                 text: root.item.title;
-                font-size: 15.5px;
+                font-size: 15px;
                 font-weight: 600;
                 color: Tokens.text;
                 overflow: elide;
@@ -437,7 +437,7 @@ component AgendaLine inherits Rectangle {
                 }
                 Text {
                     text: root.item.place;
-                    font-size: 13.5px;
+                    font-size: 13px;
                     color: Tokens.text-muted;
                     overflow: elide;
                     horizontal-stretch: 1;
@@ -467,7 +467,7 @@ component AgendaNow inherits HorizontalLayout {
     Text {
         width: 58px;
         text: root.time;
-        font-size: 12.5px;
+        font-size: 13px;
         font-weight: 700;
         color: Tokens.red;
         horizontal-alignment: right;
@@ -759,7 +759,7 @@ export component PhoneMonth inherits VerticalLayout {
                         background: cell.selected ? Tokens.accent : transparent;
                         Text {
                             text: cell.day;
-                            font-size: 13.5px;
+                            font-size: 13px;
                             font-weight: cell.selected || cell.today ? 700 : 400;
                             color: cell.selected ? Tokens.accent-text
                                 : cell.today ? Tokens.accent
@@ -781,7 +781,7 @@ export component PhoneMonth inherits VerticalLayout {
                             x: 3px;
                             width: parent.width - 6px;
                             text: chip.title;
-                            font-size: 10.5px;
+                            font-size: 11px;
                             color: Tokens.text;
                             vertical-alignment: center;
                             overflow: clip;
@@ -798,7 +798,7 @@ export component PhoneMonth inherits VerticalLayout {
                             x: 3px;
                             width: parent.width - 6px;
                             text: "+" + reste;
-                            font-size: 10.5px;
+                            font-size: 11px;
                             color: Tokens.text;
                             vertical-alignment: center;
                         }
@@ -897,7 +897,7 @@ component SheetCalendarRow inherits Rectangle {
             horizontal-stretch: 1;
             Text {
                 text: root.cal.name;
-                font-size: 15.5px;
+                font-size: 15px;
                 color: Tokens.text;
                 overflow: elide;
             }
@@ -970,7 +970,7 @@ export component CalendarsSheet inherits Rectangle {
                     Text {
                         text: "Calendars";
                         font-family: Tokens.font-display;
-                        font-size: 19px;
+                        font-size: 18px;
                         font-weight: 600;
                         color: Tokens.text;
                         vertical-alignment: center;

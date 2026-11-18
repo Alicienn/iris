@@ -566,7 +566,7 @@ component FormatBar inherits HorizontalLayout {
         label: "Bold";
         shortcut: "Ctrl+B";
         button-size: 26px;
-        icon-size: 15px;
+        icon-size: 16px;
         clicked => { root.apply("bold"); }
     }
     IconButton {
@@ -574,7 +574,7 @@ component FormatBar inherits HorizontalLayout {
         label: "Italic";
         shortcut: "Ctrl+I";
         button-size: 26px;
-        icon-size: 15px;
+        icon-size: 16px;
         clicked => { root.apply("italic"); }
     }
     IconButton {
@@ -582,7 +582,7 @@ component FormatBar inherits HorizontalLayout {
         label: "Underline";
         shortcut: "Ctrl+U";
         button-size: 26px;
-        icon-size: 15px;
+        icon-size: 16px;
         clicked => { root.apply("underline"); }
     }
 
@@ -593,28 +593,28 @@ component FormatBar inherits HorizontalLayout {
         label: "Insert link";
         shortcut: "Ctrl+K";
         button-size: 26px;
-        icon-size: 15px;
+        icon-size: 16px;
         clicked => { root.apply("link"); }
     }
     IconButton {
         icon: Icons.list;
         label: "Bulleted list";
         button-size: 26px;
-        icon-size: 15px;
+        icon-size: 16px;
         clicked => { root.apply("list"); }
     }
     IconButton {
         icon: Icons.quote;
         label: "Quote";
         button-size: 26px;
-        icon-size: 15px;
+        icon-size: 16px;
         clicked => { root.apply("quote"); }
     }
     IconButton {
         icon: Icons.code;
         label: "Code";
         button-size: 26px;
-        icon-size: 15px;
+        icon-size: 16px;
         clicked => { root.apply("code"); }
     }
 
@@ -722,7 +722,7 @@ export component ParkedDraft inherits Rectangle {
             y: (parent.height - self.height) / 2;
             width: 14px;
             data: Icons.pencil;
-            size: 13px;
+            size: 14px;
             tint: Tokens.text-muted;
         }
         Text {
@@ -738,7 +738,7 @@ export component ParkedDraft inherits Rectangle {
             y: (parent.height - self.height) / 2;
             width: 14px;
             data: Icons.window-maximise;
-            size: 13px;
+            size: 14px;
             tint: touche.has-hover ? Tokens.text : Tokens.text-muted;
         }
     }
@@ -1018,7 +1018,7 @@ export component ComposePanel inherits Rectangle {
                     icon: Icons.paperclip;
                     label: "Attach a file";
                     button-size: 44px;
-                    icon-size: 21px;
+                    icon-size: 22px;
                     clicked => {
                         puits.focus();
                         root.attach();
@@ -1030,7 +1030,7 @@ export component ComposePanel inherits Rectangle {
                     icon: Icons.clock;
                     label: "Send later";
                     button-size: 44px;
-                    icon-size: 21px;
+                    icon-size: 22px;
                     clicked => {
                         // The keyboard down first: the times rise from where it was.
                         puits.focus();
@@ -1579,7 +1579,7 @@ export component ComposePanel inherits Rectangle {
                 horizontal-stretch: 1;
                 Text {
                     text: root.card-name != "" ? root.card-name : root.card-address;
-                    font-size: Layout.compact ? 17px : 15px;
+                    font-size: Layout.compact ? 18px : 15px;
                     font-weight: Tokens.weight-bold;
                     color: Tokens.text;
                     overflow: elide;

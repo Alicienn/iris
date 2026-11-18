@@ -334,7 +334,8 @@ never ends. Pick a goal, then a sound:
   *Darken as it plays*.
 - Each goal remembers its sound, pad and options. While sound plays, a small wave moves
   in the headphones. **Windows's media controls** (the volume flyout, the lock screen)
-  and the keyboard's play/pause key play and pause it, as for any music player.
+  and the keyboard's play/pause key play and pause it, as for any music player; with
+  the card open, so does `Space`.
 - Nothing runs while it is paused: the sound output opens on play and closes on pause.
 
 ## An AI assistant
@@ -402,6 +403,7 @@ over a choice made before it arrived.
 | `Ctrl`+`,` | Settings |
 | `Escape` | Close, leave full screen, a search or a selection |
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | Notes: new / open / search |
+| `Ctrl`+`F`, then `Enter` / `Shift`+`Enter` | Notes: find in the note, next / previous |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | Notes: new tab / close / next tab |
 | `Ctrl`+`←` / `Ctrl`+`→` | Notes: a word's start / end |
 | `Ctrl`+`Shift`+`V` | Notes: paste as plain text |

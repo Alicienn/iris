@@ -211,7 +211,7 @@ export component HabitRow inherits Rectangle {
                 spacing: 1px;
                 Text {
                     text: root.item.title;
-                    font-size: 13.5px;
+                    font-size: 13px;
                     font-weight: 600;
                     color: Tokens.text;
                     overflow: elide;
@@ -323,7 +323,7 @@ component PhoneHabitRow inherits Rectangle {
                 horizontal-stretch: 1;
                 Text {
                     text: root.item.title;
-                    font-size: 15.5px;
+                    font-size: 15px;
                     font-weight: 600;
                     color: Tokens.text;
                     overflow: elide;
@@ -592,7 +592,7 @@ component Figure inherits Rectangle {
         }
         Text {
             text: root.label;
-            font-size: 11.5px;
+            font-size: 12px;
             color: Tokens.text-muted;
             overflow: elide;
         }
@@ -663,7 +663,7 @@ export component HabitPanel inherits DetailPanel {
             icon: Icons.pencil;
             label: "Edit habit";
             button-size: 26px;
-            icon-size: 15px;
+            icon-size: 16px;
             clicked => { root.edit(); }
         }
         IconButton {
@@ -672,7 +672,7 @@ export component HabitPanel inherits DetailPanel {
             label: "Close";
             shortcut: "Escape";
             button-size: 26px;
-            icon-size: 15px;
+            icon-size: 16px;
             clicked => { root.closed(); }
         }
     }
@@ -817,7 +817,7 @@ export component HabitPanel inherits DetailPanel {
                     background: root.detail.goal-color;
                     Icon {
                         data: Icons.flag;
-                        size: 13px;
+                        size: 14px;
                         weight: 2;
                         tint: Tokens.accent-text;
                     }
@@ -930,7 +930,7 @@ component FigureCard inherits Rectangle {
         }
         Text {
             text: root.label;
-            font-size: 12.5px;
+            font-size: 13px;
             color: Tokens.text-muted;
             overflow: elide;
         }
@@ -1135,7 +1135,7 @@ export component HabitPage inherits Rectangle {
                                 alignment: space-between;
                                 for m in root.detail.months: Text {
                                     text: m;
-                                    font-size: 11.5px;
+                                    font-size: 12px;
                                     color: Tokens.text-muted;
                                 }
                             }
@@ -1163,7 +1163,7 @@ export component HabitPage inherits Rectangle {
                                 horizontal-stretch: 1;
                                 Text {
                                     text: root.detail.goal-title;
-                                    font-size: 15.5px;
+                                    font-size: 15px;
                                     color: Tokens.text;
                                     overflow: elide;
                                 }
@@ -1215,7 +1215,7 @@ component FormRow inherits HorizontalLayout {
     Text {
         width: 96px;
         text: root.name;
-        font-size: 12.5px;
+        font-size: 13px;
         color: Tokens.text-muted;
         vertical-alignment: center;
     }
@@ -1505,14 +1505,14 @@ export component NewHabitPanel inherits Rectangle {
                                     spacing: 5px;
                                     Text {
                                         text: root.times;
-                                        font-size: 17px;
+                                        font-size: 18px;
                                         font-weight: 700;
                                         color: Tokens.text;
                                         vertical-alignment: center;
                                     }
                                     Text {
                                         text: "times a week";
-                                        font-size: 17px;
+                                        font-size: 18px;
                                         color: Tokens.text;
                                         vertical-alignment: center;
                                     }
@@ -1910,8 +1910,8 @@ export component HabitsView inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.list;
                 label: "Lists";
-                button-size: Layout.touch-input ? 44px : 30px;
-                icon-size: Layout.touch-input ? 22px : 18px;
+                button-size: Layout.toolbar-button;
+                icon-size: Layout.toolbar-icon;
                 clicked => { root.lists-requested(); }
             }
             Text {

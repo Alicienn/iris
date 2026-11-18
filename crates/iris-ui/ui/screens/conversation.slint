@@ -691,7 +691,7 @@ component Attachments inherits VerticalLayout {
                         : piece.icon == "table" ? Icons.list
                         : piece.icon == "envelope-closed" ? Icons.envelope-closed
                         : Icons.paperclip;
-                    size: 15px;
+                    size: 16px;
                     tint: Tokens.text-secondary;
                 }
             }
@@ -702,14 +702,14 @@ component Attachments inherits VerticalLayout {
                 horizontal-stretch: 1;
                 Text {
                     text: piece.name;
-                    font-size: 12.5px;
+                    font-size: 13px;
                     font-weight: 500;
                     color: Tokens.text;
                     overflow: elide;
                 }
                 Text {
                     text: piece.size;
-                    font-size: 11.5px;
+                    font-size: 12px;
                     color: Tokens.text-muted;
                     overflow: elide;
                 }
@@ -760,7 +760,7 @@ component Attachments inherits VerticalLayout {
 
         Text {
             text: "+" + (root.files.length - root.montrees);
-            font-size: 12.5px;
+            font-size: 13px;
             color: Tokens.text-secondary;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -828,7 +828,7 @@ component InviteBanner inherits Rectangle {
             horizontal-stretch: 1;
             Text {
                 text: root.title;
-                font-size: 13.5px;
+                font-size: 13px;
                 font-weight: 600;
                 color: Tokens.text;
                 overflow: elide;
@@ -843,7 +843,7 @@ component InviteBanner inherits Rectangle {
                     : root.state == 3 ? "Changed since you added it"
                     : root.state == 4 ? "Cancelled by the organiser"
                     : "Cancelled");
-                font-size: 12.5px;
+                font-size: 13px;
                 color: root.annule ? Tokens.error : Tokens.text-secondary;
                 overflow: elide;
             }
@@ -1412,7 +1412,7 @@ export component ConversationView inherits VerticalLayout {
                             }
                             Text {
                                 text: root.account-email;
-                                font-size: 12.5px;
+                                font-size: 13px;
                                 color: Tokens.text-muted;
                                 vertical-alignment: center;
                                 overflow: elide;
@@ -1438,7 +1438,7 @@ export component ConversationView inherits VerticalLayout {
                                     text: root.folder-label;
                                     // "Inbox" alone says nothing to a screen reader.
                                     accessible-label: "In " + (root.folder-all != "" ? root.folder-all : root.folder-label);
-                                    font-size: 12.5px;
+                                    font-size: 13px;
                                     color: root.folder-alarming ? Tokens.error : Tokens.text-secondary;
                                     vertical-alignment: center;
                                 }
@@ -1450,7 +1450,7 @@ export component ConversationView inherits VerticalLayout {
                         }
                         if root.messages.length > 1: Text {
                             text: root.messages.length + " messages";
-                            font-size: 12.5px;
+                            font-size: 13px;
                             color: Tokens.text-muted;
                             vertical-alignment: center;
                             horizontal-stretch: 0;
@@ -1613,7 +1613,7 @@ export component ConversationView inherits VerticalLayout {
                             }
                             if !message.expanded: Text {
                                 text: message.preview;
-                                font-size: 12.5px;
+                                font-size: 13px;
                                 color: Tokens.text-muted;
                                 vertical-alignment: center;
                                 overflow: elide;

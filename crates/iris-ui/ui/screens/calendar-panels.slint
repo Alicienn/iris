@@ -374,7 +374,7 @@ component PhoneFact inherits Rectangle {
             horizontal-stretch: 1;
             Text {
                 text: root.text;
-                font-size: 15.5px;
+                font-size: 15px;
                 color: Tokens.text;
                 wrap: word-wrap;
             }
@@ -526,7 +526,7 @@ component PhoneEventBody inherits VerticalLayout {
                     y: (parent.height - self.height) / 2;
                     horizontal-stretch: 1;
                     bare: true;
-                    font-size: 15.5px;
+                    font-size: 15px;
                     accessible-label: "Video call link";
                     placeholder-text: "Video call link";
                     text <=> root.video-typed;
@@ -582,7 +582,7 @@ component PhoneEventBody inherits VerticalLayout {
                 }
                 Text {
                     text: t.title;
-                    font-size: 15.5px;
+                    font-size: 15px;
                     color: t.done ? Tokens.text-muted : Tokens.text;
                     vertical-alignment: center;
                     overflow: elide;
@@ -602,7 +602,7 @@ component PhoneEventBody inherits VerticalLayout {
                     y: (parent.height - self.height) / 2;
                     horizontal-stretch: 1;
                     bare: true;
-                    font-size: 15.5px;
+                    font-size: 15px;
                     accessible-label: "Add a task for this event";
                     placeholder-text: "Add a task";
                     text <=> root.new-task;
@@ -816,7 +816,7 @@ export component DateButton inherits Rectangle {
         Icon {
             y: (parent.height - self.height) / 2;
             data: Icons.calendar;
-            size: 13px;
+            size: 14px;
             tint: Tokens.text-muted;
         }
         Text {
@@ -830,7 +830,7 @@ export component DateButton inherits Rectangle {
         Icon {
             y: (parent.height - self.height) / 2;
             data: root.open ? Icons.chevron-up : Icons.chevron-down;
-            size: 11px;
+            size: 12px;
             tint: Tokens.text-muted;
         }
     }
@@ -1038,7 +1038,7 @@ export component EventEditorPanel inherits Rectangle {
                                         y: (parent.height - self.height) / 2;
                                         horizontal-stretch: 1;
                                         bare: true;
-                                        font-size: 19px;
+                                        font-size: 18px;
                                         accessible-label: "Title";
                                         placeholder-text: "What is it?";
                                         text <=> root.title;
@@ -1056,7 +1056,7 @@ export component EventEditorPanel inherits Rectangle {
                                         y: (parent.height - self.height) / 2;
                                         horizontal-stretch: 1;
                                         bare: true;
-                                        font-size: 15.5px;
+                                        font-size: 15px;
                                         accessible-label: "Location";
                                         placeholder-text: "Location";
                                         text <=> root.location;
@@ -1075,7 +1075,7 @@ export component EventEditorPanel inherits Rectangle {
                                     first: true;
                                     Text {
                                         text: "All day";
-                                        font-size: 15.5px;
+                                        font-size: 15px;
                                         color: Tokens.text;
                                         vertical-alignment: center;
                                         horizontal-stretch: 1;
@@ -1089,7 +1089,7 @@ export component EventEditorPanel inherits Rectangle {
                                 for bout in 2: PhoneRow {
                                     Text {
                                         text: bout == 0 ? "Starts" : "Ends";
-                                        font-size: 15.5px;
+                                        font-size: 15px;
                                         color: Tokens.text;
                                         vertical-alignment: center;
                                         horizontal-stretch: 1;
@@ -1108,7 +1108,7 @@ export component EventEditorPanel inherits Rectangle {
                                         accessible-action-default => { root.picker-requested(bout); }
                                         jour := Text {
                                             text: bout == 0 ? root.start-label : root.end-label;
-                                            font-size: 13.5px;
+                                            font-size: 13px;
                                             color: root.picker == bout ? Tokens.accent : Tokens.text-secondary;
                                             horizontal-alignment: center;
                                             vertical-alignment: center;
@@ -1131,7 +1131,7 @@ export component EventEditorPanel inherits Rectangle {
                                         accessible-action-default => { root.cible = bout; }
                                         heure := Text {
                                             text: bout == 0 ? root.start-time : root.end-time;
-                                            font-size: 13.5px;
+                                            font-size: 13px;
                                             color: parent.vise ? Tokens.accent : Tokens.text-secondary;
                                             horizontal-alignment: center;
                                             vertical-alignment: center;
@@ -1226,7 +1226,7 @@ export component EventEditorPanel inherits Rectangle {
                                     accessible-action-default => { root.choix = n + 1; }
                                     Text {
                                         text: n == 0 ? "Repeat" : n == 1 ? "Reminder" : "Calendar";
-                                        font-size: 15.5px;
+                                        font-size: 15px;
                                         color: Tokens.text;
                                         vertical-alignment: center;
                                         horizontal-stretch: 1;
@@ -1247,7 +1247,7 @@ export component EventEditorPanel inherits Rectangle {
                                         text: n == 0 ? (root.repeats.length > root.repeat-index ? root.repeats[root.repeat-index] : "")
                                             : n == 1 ? (root.reminders.length > root.reminder-index ? root.reminders[root.reminder-index] : "")
                                             : (root.calendars.length > root.calendar-index ? root.calendars[root.calendar-index] : "");
-                                        font-size: 14.5px;
+                                        font-size: 15px;
                                         color: Tokens.text-muted;
                                         vertical-alignment: center;
                                         overflow: elide;
@@ -1272,7 +1272,7 @@ export component EventEditorPanel inherits Rectangle {
                                 width: parent.width - 12px;
                                 height: parent.height - 12px;
                                 bare: true;
-                                font-size: 15.5px;
+                                font-size: 15px;
                                 accessible-label: "Notes";
                                 placeholder-text: "Notes";
                                 text <=> root.notes;
@@ -1753,7 +1753,7 @@ export component CalendarContextMenu inherits Rectangle {
 
                     if root.cal.color == couleur: Icon {
                         data: Icons.check;
-                        size: 11px;
+                        size: 12px;
                         weight: 3.0;
                         tint: white;
                     }
@@ -1865,7 +1865,7 @@ export component EventContextMenu inherits Rectangle {
 
                     if rond.portee: Icon {
                         data: Icons.check;
-                        size: 11px;
+                        size: 12px;
                         weight: 3.0;
                         tint: white;
                     }

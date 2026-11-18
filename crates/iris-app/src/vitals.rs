@@ -79,11 +79,12 @@ impl VitalsReader {
         self.previous_at = now;
 
         Vitals {
-            memory_mb: resident_bytes().unwrap_or(0) as f32 / (1024.0 * 1024.0),
-            // Across all cores: a background sync saturating one core of eight is at
-            // 100% of a core, and calling that 12% would understate what the user can
-            // hear from the fan.
-            cpu_percent: (percent).clamp(0.0, 100.0 * self.cores),
+            // The figures Task Manager shows beside Iris: its private memory, and its
+            // share of the whole machine. Two different numbers for the same process
+            // read as one of them being wrong.
+            memory_mb: private_bytes().or_else(resident_bytes).unwrap_or(0) as f32
+                / (1024.0 * 1024.0),
+            cpu_percent: (percent / self.cores).clamp(0.0, 100.0),
         }
     }
 }
@@ -197,6 +198,47 @@ mod platform {
         }
         Some(counters.working_set_size as u64)
     }
+
+    /// PROCESS_MEMORY_COUNTERS_EX2 (Windows 10 1809 and later). Only the private
+    /// working set is read; the rest is there for the layout the call writes.
+    #[repr(C)]
+    #[derive(Default)]
+    #[allow(dead_code)]
+    struct MemoryCountersEx2 {
+        base: MemoryCounters,
+        private_usage: usize,
+        private_working_set_size: usize,
+        shared_commit_usage: u64,
+    }
+
+    /// The private working set: what Task Manager's Memory column shows. The whole
+    /// working set also counts the pages of system libraries shared with every other
+    /// process, which are not Iris's to give back.
+    pub fn private_bytes() -> Option<u64> {
+        let taille = std::mem::size_of::<MemoryCountersEx2>() as u32;
+        let mut counters = MemoryCountersEx2 {
+            base: MemoryCounters {
+                cb: taille,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // SAFETY: one out-parameter owned by this frame, its size passed alongside it
+        // and written in its first field, as the API requires. An older Windows that
+        // does not know this structure fails the call, and the caller falls back.
+        let ok = unsafe {
+            GetProcessMemoryInfo(
+                GetCurrentProcess(),
+                &mut counters as *mut MemoryCountersEx2 as *mut MemoryCounters,
+                taille,
+            )
+        };
+        if ok == 0 || counters.private_working_set_size == 0 {
+            return None;
+        }
+        Some(counters.private_working_set_size as u64)
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -224,6 +266,10 @@ mod platform {
         let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
         Some(pages * 4096)
     }
+
+    pub fn private_bytes() -> Option<u64> {
+        None
+    }
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -238,6 +284,9 @@ mod platform {
         None
     }
     pub fn resident_bytes() -> Option<u64> {
+        None
+    }
+    pub fn private_bytes() -> Option<u64> {
         None
     }
 }
@@ -262,6 +311,12 @@ fn process_cpu_time() -> Option<Duration> {
 /// lectures du même compteur finiraient par diverger.
 pub fn resident_bytes() -> Option<u64> {
     platform::resident_bytes()
+}
+
+/// The memory that is the process's alone (Task Manager's figure), where the system
+/// tells it.
+pub fn private_bytes() -> Option<u64> {
+    platform::private_bytes()
 }
 
 /// How long ago something happened, in words.

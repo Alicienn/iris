@@ -228,7 +228,7 @@ component StatusButton inherits Rectangle {
         Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: 11px;
+            size: 12px;
             tint: root.highlighted ? Tokens.accent-text : Tokens.text-muted;
         }
         Text {
@@ -1270,6 +1270,15 @@ export component AppWindow inherits Window {
     in property <length> note-caret-h;
     in property <bool> note-caret-visible;
     in property <int> note-caret-serial;
+    /// Ctrl+F in a note (see `NoteFindBar`).
+    in-out property <bool> note-find-open;
+    in-out property <string> note-find-query;
+    in property <string> note-find-count;
+    in-out property <int> note-find-serial;
+    callback note-find-opened();
+    callback note-find-changed(string);
+    callback note-find-step(bool);
+    callback note-find-closed();
     in property <int> note-canvas-focus-serial;
     in property <int> note-canvas-cursor;
     callback note-canvas-width(length);
@@ -2040,6 +2049,11 @@ export component AppWindow inherits Window {
             root.everywhere-open = false;
             return true;
         }
+        // Not a window: the bar over a note, last.
+        if (root.note-find-open && root.workspace == 4) {
+            root.note-find-closed();
+            return true;
+        }
         return false;
     }
 
@@ -2309,8 +2323,16 @@ export component AppWindow inherits Window {
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
+    // Sound's card has no field: the keyboard comes to the shortcuts, where Space plays
+    // and pauses, rather than staying in a note or a list behind it.
+    changed sound-open => {
+        if (root.sound-open) {
+            shortcuts.focus();
+        }
+    }
     changed modal-open => {
-        if (!root.modal-open) {
+        // A menu closed on Rename: the keyboard is the name field's, which took it.
+        if (!root.modal-open && root.notes-renaming == "") {
             shortcuts.focus();
             // A spreadsheet open: its grid is where the keys go, as they went before.
             if (root.workspace == 4 && root.note-sheet-open) {
@@ -2418,6 +2440,12 @@ export component AppWindow inherits Window {
                     return accept;
                 }
             }
+            // Sound's card open, and nothing over it: Space plays or pauses.
+            if (root.sound-open && event.text == " " && !event.modifiers.control
+                && !event.modifiers.alt && !root.shortcuts-help-open) {
+                root.sound-play();
+                return accept;
+            }
             // Nothing below this line reaches past an open window: Escape, handled
             // above, is the only key that concerns it.
             if (root.modal-open) {
@@ -2452,6 +2480,11 @@ export component AppWindow inherits Window {
                     root.notes-quick-highlight = 0;
                     root.notes-quick-open = true;
                     root.notes-quick-edited("");
+                }
+                // Find in the note open.
+                if (event.modifiers.control && !event.modifiers.shift
+                    && (event.text == "f" || event.text == "F") && root.note-open) {
+                    root.note-find-opened();
                 }
                 if (event.modifiers.control && (event.text == "r" || event.text == "R")) {
                     root.note-reading-toggled();
@@ -3644,6 +3677,13 @@ export component AppWindow inherits Window {
             caret-h: root.note-caret-h;
             caret-visible: root.note-caret-visible;
             caret-serial: root.note-caret-serial;
+            find-open: root.note-find-open;
+            find-query <=> root.note-find-query;
+            find-count: root.note-find-count;
+            find-serial: root.note-find-serial;
+            find-changed(q) => { root.note-find-changed(q); }
+            find-step(avant) => { root.note-find-step(avant); }
+            find-closed => { root.note-find-closed(); }
             canvas-focus-serial: root.note-canvas-focus-serial;
             canvas-cursor: root.note-canvas-cursor;
             canvas-width(w) => { root.note-canvas-width(w); }

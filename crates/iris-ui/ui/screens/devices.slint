@@ -195,7 +195,7 @@ component SyncRow inherits Rectangle {
             spacing: 1px;
             Text {
                 text: root.step.label;
-                font-size: 15.5px;
+                font-size: 15px;
                 color: root.step.state == 0 ? Tokens.text-muted : Tokens.text;
                 overflow: elide;
             }
@@ -267,7 +267,7 @@ export component SyncPage inherits Rectangle {
             Text {
                 text: root.peer != "" ? root.peer : "Another device";
                 font-family: Tokens.font-display;
-                font-size: 19px;
+                font-size: 18px;
                 font-weight: 600;
                 color: Tokens.text;
                 vertical-alignment: center;

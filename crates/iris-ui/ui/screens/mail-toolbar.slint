@@ -37,7 +37,7 @@ export component SearchCapsule inherits Rectangle {
         champ := TextField {
             bare: true;
             icon: root.tel ? "" : Icons.search;
-            font-size: root.tel ? 16px : 12.5px;
+            font-size: root.tel ? 16px : 13px;
             accessible-label: "Search";
             placeholder-text: root.placeholder;
             shortcut: "/";
@@ -70,7 +70,7 @@ export component SearchCapsule inherits Rectangle {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 data: Icons.window-close;
-                size: root.tel ? 16px : 11px;
+                size: root.tel ? 16px : 12px;
                 tint: fermer.has-hover ? Tokens.text : Tokens.text-muted;
             }
             fermer := TouchArea {
@@ -163,8 +163,8 @@ export component MailToolbar inherits WindowToolbar {
     height: root.hidden ? 0px : 52px;
     visible: !root.hidden;
     /// A conversation's actions on a phone: the size of a thumb.
-    property <length> bouton: Layout.compact ? 44px : 28px;
-    property <length> icone: Layout.compact ? 20px : 17px;
+    property <length> bouton: Layout.compact ? 44px : Layout.toolbar-button;
+    property <length> icone: Layout.compact ? 20px : Layout.toolbar-icon;
 
     // On a phone, the search's own page: back leaves it, as the mockups' S2.
     if root.en-recherche: IconButton {
@@ -253,8 +253,8 @@ export component MailToolbar inherits WindowToolbar {
         icon: Icons.pencil;
         label: "Write a new message";
         shortcut: "C";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: Layout.toolbar-button;
+        icon-size: Layout.toolbar-icon;
         clicked => { root.compose(); }
     }
     // On a phone, Done, Snooze, Archive and Delete are in the bar under the thread,
@@ -337,7 +337,7 @@ export component MailToolbar inherits WindowToolbar {
         icon: root.focused ? Icons.collapse : Icons.expand;
         label: root.focused ? "Leave full screen" : "Read full screen";
         button-size: root.bouton;
-        icon-size: 16px;
+        icon-size: root.icone;
         active: root.focused;
         clicked => { root.toggle-focus(); }
     }
@@ -422,7 +422,7 @@ export component PhoneMailHeader inherits VerticalLayout {
             icon: Icons.search;
             label: "Search";
             button-size: 44px;
-            icon-size: 21px;
+            icon-size: 22px;
             clicked => { root.search(); }
         }
     }

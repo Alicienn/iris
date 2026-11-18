@@ -3362,6 +3362,28 @@ fn tirer_la_liste_du_haut_releve_le_courrier() {
     );
 }
 
+fn espace_joue_et_met_en_pause_le_son() {
+    // Sound's card open: Space plays or pauses, as the play button does, and touches
+    // nothing behind the card.
+    let f = fenetre();
+    let joue = Rc::new(RefCell::new(0));
+    {
+        let joue = Rc::clone(&joue);
+        f.on_sound_play(move || *joue.borrow_mut() += 1);
+    }
+    let touches = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let touches = Rc::clone(&touches);
+        f.on_key_pressed(move |t| touches.borrow_mut().push(t.to_string()));
+    }
+    f.set_sound_open(true);
+    taper(&f, " ");
+    assert_eq!(*joue.borrow(), 1, "Espace n'a pas lancé le son");
+    taper(&f, " ");
+    assert_eq!(*joue.borrow(), 2, "Espace n'a pas mis le son en pause");
+    assert!(touches.borrow().is_empty(), "{:?}", touches.borrow());
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -3709,6 +3731,10 @@ fn main() {
         (
             "a_right_click_on_selected_words_offers_copy_and_select_all",
             a_right_click_on_selected_words_offers_copy_and_select_all,
+        ),
+        (
+            "espace_joue_et_met_en_pause_le_son",
+            espace_joue_et_met_en_pause_le_son,
         ),
     ];
 

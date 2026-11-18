@@ -73,6 +73,17 @@ pub(super) struct Editeur {
     /// the signs that close it.
     apres_frappe: bool,
     pub modele: Rc<VecModel<NoteViewBlock>>,
+    /// Ctrl+F: what is looked for, where it is in the note (byte offsets), and which
+    /// of those places is shown. `None`: the find bar is closed.
+    cherche: Option<Cherche>,
+}
+
+/// What Ctrl+F looks for in the note.
+#[derive(Debug, Default)]
+struct Cherche {
+    requete: String,
+    trouves: Vec<(usize, usize)>,
+    courant: usize,
 }
 
 impl Editeur {
@@ -93,6 +104,7 @@ impl Editeur {
             bordures: crate::settings::current().notes_table_borders,
             apres_frappe: false,
             modele: Rc::new(VecModel::default()),
+            cherche: None,
         }
     }
 
@@ -375,6 +387,37 @@ pub(super) fn montrer(f: &AppWindow, e: &mut Etat) {
             marques.push(rect(x, y, w, h.max(2.0), couleurs.accent, 1.0, 0, 0.0));
         } else {
             marques.push(rect(x, y, w, h, 0, 2.0, couleurs.accent, 2.0));
+        }
+    }
+    // What Ctrl+F found, found again in the note as it is now (it may have been
+    // typed in): each place lightly, the one shown in the accent.
+    {
+        let texte = e.note.as_ref().map_or("", |n| n.text.as_str());
+        if let Some(ch) = e.ed.cherche.as_mut() {
+            ch.trouves = occurrences(texte, &ch.requete);
+            ch.courant = ch.courant.min(ch.trouves.len().saturating_sub(1));
+            f.set_note_find_count(compte(ch).into());
+        }
+    }
+    if let Some(ch) = &e.ed.cherche {
+        for (k, &(a, b)) in ch.trouves.iter().enumerate() {
+            let (ia, la) = situer(e, a);
+            let (ib, lb) = situer(e, b);
+            if ia != ib {
+                continue;
+            }
+            let Some(bv) = e.ed.vue.get(ia) else { continue };
+            if bv.zones.is_empty() {
+                continue;
+            }
+            let teinte = if k == ch.courant {
+                (couleurs.accent & 0x00ff_ffff) | 0x6600_0000
+            } else {
+                (couleurs.accent & 0x00ff_ffff) | 0x2800_0000
+            };
+            for (x, y, w, h) in bv.rectangles(la, lb) {
+                marques.push(rect(x, e.ed.ys[ia] + y, w, h, teinte, 2.0, 0, 0.0));
+            }
         }
     }
     let Some(i) = actif(e).filter(|_| !e.reading && e.note.is_some()) else {
@@ -1011,6 +1054,127 @@ fn presse_papiers() -> String {
         .unwrap_or_default()
 }
 
+/// Ctrl+F: the find bar over the note, the keyboard in it, the selection's words
+/// looked for when there are some.
+pub(super) fn chercher_ouvrir(f: &AppWindow, e: &mut Etat) {
+    if e.note.is_none() {
+        return;
+    }
+    let requete = texte_choisi(e)
+        .filter(|t| !t.contains('\n') && t.len() <= 200)
+        .or_else(|| e.ed.cherche.as_ref().map(|c| c.requete.clone()))
+        .unwrap_or_default();
+    f.set_note_find_query(requete.as_str().into());
+    f.set_note_find_open(true);
+    f.set_note_find_serial(f.get_note_find_serial() + 1);
+    chercher(f, e, &requete);
+}
+
+/// The places of `requete` in the note, case and accents' case aside; the first one
+/// after the cursor shown.
+pub(super) fn chercher(f: &AppWindow, e: &mut Etat, requete: &str) {
+    let texte = e.note.as_ref().map(|n| n.text.as_str()).unwrap_or("");
+    let trouves = occurrences(texte, requete);
+    // From the start of the place shown: typing one more letter keeps it if it still
+    // matches.
+    let depuis = e.ed.bornes().0;
+    let courant = trouves.iter().position(|&(a, _)| a >= depuis).unwrap_or(0);
+    e.ed.cherche = Some(Cherche {
+        requete: requete.to_string(),
+        trouves,
+        courant,
+    });
+    chercher_montrer(f, e);
+}
+
+/// The next place found (or the one before), shown.
+pub(super) fn chercher_pas(f: &AppWindow, e: &mut Etat, avant: bool) {
+    if let Some(ch) = &mut e.ed.cherche {
+        let n = ch.trouves.len();
+        if n == 0 {
+            return;
+        }
+        ch.courant = if avant {
+            (ch.courant + n - 1) % n
+        } else {
+            (ch.courant + 1) % n
+        };
+    }
+    chercher_montrer(f, e);
+}
+
+/// The find bar closed: the cursor at the end of the place shown, the keyboard back in
+/// the note.
+pub(super) fn chercher_fermer(f: &AppWindow, e: &mut Etat) {
+    let trouve = e.ed.cherche.take().is_some_and(|ch| !ch.trouves.is_empty());
+    f.set_note_find_open(false);
+    f.set_note_find_count(Default::default());
+    if trouve && e.note.is_some() && !e.reading {
+        let t = e.ed.tete;
+        placer(f, e, t, t);
+    } else {
+        montrer(f, e);
+    }
+    clavier(f);
+}
+
+/// The place shown selected (the page scrolls to it); `montrer` draws the rest.
+fn chercher_montrer(f: &AppWindow, e: &mut Etat) {
+    let place =
+        e.ed.cherche
+            .as_ref()
+            .and_then(|ch| ch.trouves.get(ch.courant).copied());
+    match place {
+        Some((a, b)) if !e.reading => placer(f, e, a, b),
+        _ => montrer(f, e),
+    }
+}
+
+/// What the find bar says: "3 of 12", "No results", or nothing yet.
+fn compte(ch: &Cherche) -> String {
+    match ch.trouves.len() {
+        _ if ch.requete.is_empty() => String::new(),
+        0 => "No results".to_string(),
+        n => format!("{} of {n}", ch.courant + 1),
+    }
+}
+
+/// Where `requete` is in `texte`, without regard to case: (start, end) byte offsets.
+fn occurrences(texte: &str, requete: &str) -> Vec<(usize, usize)> {
+    if requete.is_empty() {
+        return Vec::new();
+    }
+    // Lowered one character at a time, each lowered byte knowing the character it came
+    // from: the places found are the note's own offsets.
+    let mut bas = String::with_capacity(texte.len());
+    let mut origine: Vec<usize> = Vec::with_capacity(texte.len());
+    for (i, c) in texte.char_indices() {
+        for l in c.to_lowercase() {
+            let avant = bas.len();
+            bas.push(l);
+            origine.extend(std::iter::repeat_n(i, bas.len() - avant));
+        }
+    }
+    let q: String = requete.chars().flat_map(char::to_lowercase).collect();
+    let fin_de = |k: usize| -> usize {
+        // The end of the character the lowered byte `k - 1` came from.
+        let debut = origine[k - 1];
+        debut + texte[debut..].chars().next().map_or(0, char::len_utf8)
+    };
+    let mut trouves = Vec::new();
+    let mut depuis = 0;
+    while let Some(p) = bas[depuis..].find(&q) {
+        let a = depuis + p;
+        let b = a + q.len();
+        trouves.push((origine[a], fin_de(b)));
+        depuis = b;
+        if trouves.len() >= 5000 {
+            break;
+        }
+    }
+    trouves
+}
+
 /// A key while the editor has the keyboard. True when it was used.
 pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
     // Its right-click menu open owns the keyboard: only Escape, which closes it.
@@ -1018,6 +1182,15 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
         if nom == "escape" {
             f.set_note_edit_menu_open(false);
         }
+        return true;
+    }
+    if nom == "ctrl+f" || nom == "ctrl+F" {
+        chercher_ouvrir(f, e);
+        return true;
+    }
+    // F3 and Shift+F3 step through what was found, as in a browser.
+    if e.ed.cherche.is_some() && (nom == "f3" || nom == "shift+f3") {
+        chercher_pas(f, e, nom == "shift+f3");
         return true;
     }
     // An embedded spreadsheet's cells take the keys while they are selected.
@@ -1066,7 +1239,10 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
     let bas = if nom.starts_with("type:") {
         nom.to_string()
     } else {
+        // Shift held while erasing (typing capitals) still erases: it extends nothing.
         nom.to_lowercase()
+            .replace("shift+backspace", "backspace")
+            .replace("shift+delete", "delete")
     };
     let etendre = bas.contains("shift+");
     let ctrl = bas.starts_with("ctrl+");
@@ -1749,6 +1925,18 @@ pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
             });
         }};
     }
+    geste!(on_note_find_opened, |f, e| {
+        chercher_ouvrir(&f, e);
+    });
+    geste!(on_note_find_changed, |f, e, requete| {
+        chercher(&f, e, &requete);
+    });
+    geste!(on_note_find_step, |f, e, avant| {
+        chercher_pas(&f, e, avant);
+    });
+    geste!(on_note_find_closed, |f, e| {
+        chercher_fermer(&f, e);
+    });
     geste!(on_note_canvas_width, |f, e, largeur| {
         if (largeur - e.ed.largeur).abs() > 0.5 {
             e.ed.largeur = largeur;
@@ -1837,6 +2025,18 @@ fn touches_du_clavier(avant: &str, apres: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_ignores_case_and_gives_the_notes_own_offsets() {
+        let t = "Été, puis l'été. ÉTÉ !";
+        let trouves = occurrences(t, "été");
+        assert_eq!(trouves.len(), 3);
+        for (a, b) in trouves {
+            assert_eq!(t[a..b].to_lowercase(), "été");
+        }
+        assert!(occurrences(t, "").is_empty());
+        assert!(occurrences(t, "hiver").is_empty());
+    }
 
     #[test]
     fn words_are_found_around_and_beside() {

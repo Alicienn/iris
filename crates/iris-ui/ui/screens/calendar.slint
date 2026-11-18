@@ -117,7 +117,7 @@ export component MiniMonth inherits VerticalLayout {
         padding-left: 6px;
         Text {
             text: root.title;
-            font-size: root.roomy ? 13.5px : 12.5px;
+            font-size: root.roomy ? 13px : 13px;
             font-weight: 600;
             color: Tokens.text;
             vertical-alignment: center;
@@ -128,7 +128,7 @@ export component MiniMonth inherits VerticalLayout {
             icon: Icons.chevron-left;
             label: "Previous month";
             button-size: root.roomy ? 28px : 26px;
-            icon-size: root.roomy ? 15px : 14px;
+            icon-size: root.roomy ? 16px : 14px;
             clicked => { root.navigate(-1); }
         }
         IconButton {
@@ -136,7 +136,7 @@ export component MiniMonth inherits VerticalLayout {
             icon: Icons.chevron-right;
             label: "Next month";
             button-size: root.roomy ? 28px : 26px;
-            icon-size: root.roomy ? 15px : 14px;
+            icon-size: root.roomy ? 16px : 14px;
             clicked => { root.navigate(1); }
         }
     }
@@ -180,7 +180,7 @@ export component MiniMonth inherits VerticalLayout {
 
             Text {
                 text: cell.day;
-                font-size: root.roomy ? 12.5px : 11px;
+                font-size: root.roomy ? 13px : 11px;
                 font-weight: cell.today || cell.events.length > 0 ? 600 : 400;
                 color: cell.today ? Tokens.accent-text
                     : !cell.in-month ? Tokens.text-faint
@@ -267,7 +267,7 @@ component CalendarRow inherits Rectangle {
             icon: Icons.refresh;
             label: (root.cal.remote ? "Sync " : "Refresh ") + root.cal.name;
             button-size: 24px;
-            icon-size: 13px;
+            icon-size: 14px;
             clicked => { root.refresh(root.cal.id); }
         }
         if root.cal.subscribed && (touch.has-hover || Layout.touch-input): IconButton {
@@ -275,7 +275,7 @@ component CalendarRow inherits Rectangle {
             icon: Icons.trash;
             label: "Unsubscribe from " + root.cal.name;
             button-size: 24px;
-            icon-size: 13px;
+            icon-size: 14px;
             danger: true;
             clicked => { root.remove(root.cal); }
         }
@@ -570,7 +570,7 @@ component WeekGrid inherits VerticalLayout {
                     alignment: start;
                     Text {
                         text: d.name;
-                        font-size: 12.5px;
+                        font-size: 13px;
                         font-weight: d.today ? 600 : 400;
                         color: d.today ? Tokens.accent : Tokens.text-muted;
                         horizontal-alignment: center;
@@ -606,7 +606,7 @@ component WeekGrid inherits VerticalLayout {
                 spacing: 6px;
                 Text {
                     text: d.name;
-                    font-size: 12.5px;
+                    font-size: 13px;
                     font-weight: d.today ? 600 : 400;
                     color: d.today ? Tokens.accent : Tokens.text-muted;
                     vertical-alignment: center;
@@ -832,14 +832,14 @@ component WeekGrid inherits VerticalLayout {
                     // white, lighter on graphite.
                     Text {
                         text: e.title;
-                        font-size: Layout.compact ? 13.5px : 12px;
+                        font-size: Layout.compact ? 13px : 12px;
                         font-weight: 600;
                         color: Layout.compact ? Tokens.text : e.color.mix(Tokens.text, 0.55);
                         overflow: elide;
                     }
                     if evenement.height > 34px: Text {
                         text: e.time;
-                        font-size: Layout.compact ? 12.5px : 11px;
+                        font-size: Layout.compact ? 13px : 11px;
                         color: Layout.compact ? Tokens.text-secondary
                             : e.color.mix(Tokens.text, 0.55).transparentize(0.2);
                         overflow: elide;
@@ -1008,7 +1008,7 @@ component WeekGrid inherits VerticalLayout {
                     alignment: start;
                     Text {
                         text: root.draft-title == "" ? "New event" : root.draft-title;
-                        font-size: 13.5px;
+                        font-size: 13px;
                         font-weight: 600;
                         color: Tokens.accent;
                         overflow: elide;
@@ -1016,7 +1016,7 @@ component WeekGrid inherits VerticalLayout {
                     Text {
                         text: root.hm(root.draft-minute) + " – "
                             + root.hm(min(1439, root.draft-minute + 60));
-                        font-size: 12.5px;
+                        font-size: 13px;
                         color: Tokens.accent;
                         overflow: elide;
                     }
@@ -1095,7 +1095,7 @@ component WeekGrid inherits VerticalLayout {
                 background: Tokens.red;
                 Text {
                     text: root.now-label;
-                    font-size: 10.5px;
+                    font-size: 11px;
                     font-weight: 600;
                     color: Tokens.accent-text;
                     horizontal-alignment: center;
@@ -1203,7 +1203,7 @@ component WeekGrid inherits VerticalLayout {
                     }
                     duree := Text {
                         text: root.hm(root.draft-minute) + " · 1 h";
-                        font-size: 13.5px;
+                        font-size: 13px;
                         color: Tokens.text-secondary;
                         horizontal-alignment: center;
                         vertical-alignment: center;
@@ -1544,7 +1544,8 @@ export component CalendarView inherits Rectangle {
                     icon: Icons.chevron-left;
                     label: "Previous";
                     shortcut: "←";
-                    button-size: 28px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.navigate(-1); }
                 }
                 Button {
@@ -1559,7 +1560,8 @@ export component CalendarView inherits Rectangle {
                     icon: Icons.chevron-right;
                     label: "Next";
                     shortcut: "→";
-                    button-size: 28px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.navigate(1); }
                 }
                 Rectangle { width: 6px; }
@@ -1676,7 +1678,7 @@ export component CalendarView inherits Rectangle {
             x: 12px;
             width: parent.width - 24px;
             text: root.carried-title;
-            font-size: 12.5px;
+            font-size: 13px;
             color: Tokens.text;
             vertical-alignment: center;
             overflow: elide;

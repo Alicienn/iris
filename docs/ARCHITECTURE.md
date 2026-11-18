@@ -299,6 +299,10 @@ Stated here so they are decided rather than discovered:
   the machine's zone (as the calendar does) would shift the hours migrated from 6.x.
 - **Filer sees an attachment's name only once the body is fetched**: the attachments are
   recorded with the body, and new mail is sorted at header time.
+- **An attachment is read from the message as received**, never stored apart. The body
+  cache is bounded, so opening or saving one first asks `fetch_body` (from the cache, or
+  downloaded again within 25 s) on the runtime, then writes the file on the window's
+  thread (7.19.0).
 - **Migration 29 keeps `areas`** as a bare table of ids, because the `area_id` columns
   still reference it; dropping the columns would mean rebuilding three synced tables and
   their triggers.
@@ -874,8 +878,11 @@ These rules come from bugs users hit, and each has a scenario in
   never one image the height of the message: a 51,000-pixel newsletter costs two tiles,
   which `cargo test -p iris-app --test memoire` enforces (on the heap's peak, counted
   by that test binary's own allocator).
-- **How memory is measured**: the resident size (`vitals.rs`, the status bar's figure),
-  with the `mesure` example and `tests/memoire.rs`. Until 7.0 the application also
+- **How memory is measured**: the resident size (`vitals::resident_bytes`), with the
+  `mesure` example and `tests/memoire.rs`. The status bar shows instead what Task
+  Manager shows beside Iris (7.19.0): the private working set
+  (`PROCESS_MEMORY_COUNTERS_EX2`, the shared pages of system libraries left out) and the
+  CPU as a share of the whole machine, not of one core. Until 7.0 the application also
   carried a counting global allocator, a capture of where large blocks came from, an
   address-space breakdown and start-up milestones (`memory.rs`, `IRIS_MEMREPORT`,
   `iris memory`); they had done their work and are gone.

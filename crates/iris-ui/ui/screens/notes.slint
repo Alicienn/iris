@@ -146,6 +146,7 @@ export global NoteSelect {
             : event.text == Key.PageUp ? "pageup"
             : event.text == Key.PageDown ? "pagedown"
             : event.text == Key.F2 ? "f2"
+            : event.text == Key.F3 ? "f3"
             : event.text == Key.F11 ? "f11"
             : "";
         if (base != "") {
@@ -237,7 +238,7 @@ component BlockPreviewCard inherits Rectangle {
                     height: parent.height;
                     text: BlockPreview.title;
                     font-family: BlockPreview.level == 1 ? Tokens.font-display : Tokens.font-family;
-                    font-size: BlockPreview.level == 1 ? 25px : BlockPreview.level == 2 ? 19px : 15.5px;
+                    font-size: BlockPreview.level == 1 ? 25px : BlockPreview.level == 2 ? 18px : 15px;
                     font-weight: 700;
                     color: Tokens.text;
                     vertical-alignment: center;
@@ -260,7 +261,7 @@ component BlockPreviewCard inherits Rectangle {
                         if BlockPreview.family == "numbered": Text {
                             width: 16px;
                             text: (i + 1) + ".";
-                            font-size: 13.5px;
+                            font-size: 13px;
                             color: Tokens.text-secondary;
                             vertical-alignment: center;
                         }
@@ -276,7 +277,7 @@ component BlockPreviewCard inherits Rectangle {
                                 background: i == 0 ? Tokens.accent.with-alpha(root.fin) : transparent;
                                 Icon {
                                     data: Icons.check;
-                                    size: 11px;
+                                    size: 12px;
                                     weight: 2.4;
                                     tint: Tokens.accent-text;
                                     alpha: i == 0 ? root.fin : 0;
@@ -285,7 +286,7 @@ component BlockPreviewCard inherits Rectangle {
                         }
                         Text {
                             text: ligne;
-                            font-size: 13.5px;
+                            font-size: 13px;
                             color: BlockPreview.family == "task" && i == 0 && root.fin > 0.5 ? Tokens.text-muted : Tokens.text;
                             vertical-alignment: center;
                             overflow: elide;
@@ -328,7 +329,7 @@ component BlockPreviewCard inherits Rectangle {
                             spacing: 6px;
                             Text {
                                 text: BlockPreview.title;
-                                font-size: 13.5px;
+                                font-size: 13px;
                                 font-weight: 700;
                                 color: BlockPreview.tint;
                                 overflow: elide;
@@ -337,7 +338,7 @@ component BlockPreviewCard inherits Rectangle {
                             Icon {
                                 y: 2px;
                                 data: BlockPreview.level == 1 && root.fin < 0.5 ? Icons.chevron-right : Icons.chevron-down;
-                                size: 11px;
+                                size: 12px;
                                 tint: BlockPreview.tint;
                             }
                         }
@@ -361,7 +362,7 @@ component BlockPreviewCard inherits Rectangle {
                     }
                     if !BlockPreview.has-picture: Text {
                         text: BlockPreview.body;
-                        font-size: 17px;
+                        font-size: 18px;
                         color: Tokens.text;
                         vertical-alignment: center;
                     }
@@ -376,7 +377,7 @@ component BlockPreviewCard inherits Rectangle {
                         for l in [BlockPreview.title, BlockPreview.body]: Text {
                             text: l;
                             font-family: Tokens.font-mono;
-                            font-size: 12.5px;
+                            font-size: 13px;
                             color: Tokens.text;
                         }
                     }
@@ -388,7 +389,7 @@ component BlockPreviewCard inherits Rectangle {
                         spacing: 6px;
                         Icon {
                             data: Icons.table;
-                            size: 13px;
+                            size: 14px;
                             tint: Tokens.text-muted;
                         }
                         Text {
@@ -429,7 +430,7 @@ component BlockPreviewCard inherits Rectangle {
                     spacing: 12px;
                     Text {
                         text: "Part one ends here.";
-                        font-size: 12.5px;
+                        font-size: 13px;
                         color: Tokens.text-muted;
                     }
                     Rectangle {
@@ -438,7 +439,7 @@ component BlockPreviewCard inherits Rectangle {
                     }
                     Text {
                         text: "Part two begins.";
-                        font-size: 12.5px;
+                        font-size: 13px;
                         color: Tokens.text-muted;
                     }
                 }
@@ -465,12 +466,12 @@ component BlockPreviewCard inherits Rectangle {
                         Icon {
                             y: 3px;
                             data: root.fin < 0.5 ? Icons.chevron-right : Icons.chevron-down;
-                            size: 11px;
+                            size: 12px;
                             tint: Tokens.text-secondary;
                         }
                         Text {
                             text: BlockPreview.title;
-                            font-size: 13.5px;
+                            font-size: 13px;
                             font-weight: 600;
                             color: Tokens.text;
                         }
@@ -704,7 +705,7 @@ component TreeRow inherits Rectangle {
         if root.item.pinned: Icon {
             y: (parent.height - self.height) / 2;
             data: Icons.star;
-            size: 11px;
+            size: 12px;
             tint: Nav.count-ink(root.item.selected);
         }
     }
@@ -1090,7 +1091,7 @@ component NoteBlock inherits Rectangle {
                             vertical-alignment: top;
                             text: root.block.rich;
                             default-color: Tokens.text;
-                            default-font-size: 14.5px;
+                            default-font-size: 15px;
                             link-color: Tokens.accent;
                             link-clicked(l) => { root.link(l); }
                         }
@@ -1144,7 +1145,7 @@ component NoteBlock inherits Rectangle {
                                     x: 8px;
                                     width: parent.width - 16px;
                                     text: root.block.cells[r * root.block.columns + k];
-                                    font-size: 13.5px;
+                                    font-size: 13px;
                                     font-weight: r == 0 ? 600 : 400;
                                     color: Tokens.text;
                                     wrap: root.block.clip ? TextWrap.no-wrap : TextWrap.word-wrap;
@@ -1167,7 +1168,7 @@ component NoteBlock inherits Rectangle {
                                     x: 6px;
                                     width: parent.width - 12px;
                                     text: NoteSelect.edit-text;
-                                    font-size: 13.5px;
+                                    font-size: 13px;
                                     color: Tokens.text;
                                     vertical-alignment: center;
                                     single-line: true;
@@ -1317,7 +1318,7 @@ component NoteBlock inherits Rectangle {
                     icon: Icons.open-external;
                     label: "Open the spreadsheet";
                     button-size: 22px;
-                    icon-size: 13px;
+                    icon-size: 14px;
                     clicked => { root.sheet-option(root.index, "open"); }
                 }
                 IconButton {
@@ -1326,7 +1327,7 @@ component NoteBlock inherits Rectangle {
                     icon: Icons.settings;
                     label: root.block.clip ? "Wrap long words in their cells" : "Cut long words to one line";
                     button-size: 22px;
-                    icon-size: 13px;
+                    icon-size: 14px;
                     active: root.block.clip;
                     clicked => { root.sheet-option(root.index, "clip"); }
                 }
@@ -1532,7 +1533,7 @@ component PhoneTreeRow inherits Rectangle {
         }
         if !root.renaming: Text {
             text: root.item.name;
-            font-size: 15.5px;
+            font-size: 15px;
             // The chosen row, and a top folder open over what it holds, in bold.
             font-weight: root.item.selected || (root.nested && root.folder && root.item.expanded && root.item.depth == 0) ? 600 : 400;
             color: Tokens.text;
@@ -1555,7 +1556,7 @@ component PhoneTreeRow inherits Rectangle {
                 height: 34px;
                 width: parent.width;
                 text: root.item.name;
-                font-size: 15.5px;
+                font-size: 15px;
                 init => {
                     self.focus();
                     self.select-all();
@@ -1565,7 +1566,7 @@ component PhoneTreeRow inherits Rectangle {
         }
         if root.item.meta != "": Text {
             text: root.item.meta;
-            font-size: 14.5px;
+            font-size: 15px;
             color: Tokens.text-muted;
             vertical-alignment: center;
         }
@@ -1635,7 +1636,7 @@ component QuietFab inherits Rectangle {
         }
         Text {
             text: root.text;
-            font-size: 15.5px;
+            font-size: 15px;
             font-weight: 600;
             color: Tokens.text;
             vertical-alignment: center;
@@ -1682,9 +1683,112 @@ component GradeButton inherits Rectangle {
     }
 }
 
+// Ctrl+F in a note: what is looked for, how many places, the one before and after.
+// Enter goes to the next, Shift+Enter (or F3, Shift+F3) to the one before, Escape closes.
+component NoteFindBar inherits Rectangle {
+    in-out property <string> query;
+    in property <string> count;
+    /// Raised to put the cursor in the field (Ctrl+F again), its words selected.
+    in property <int> serial;
+    callback changed(string);
+    callback step(bool);
+    callback closed();
+
+    width: 340px;
+    height: 44px;
+    border-radius: Tokens.radius-medium;
+    background: Tokens.surface;
+    border-width: 1px;
+    border-color: Tokens.border;
+    drop-shadow-blur: 14px;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-color: Tokens.shadow-float;
+
+    changed serial => {
+        champ.focus();
+        champ.select-all();
+    }
+
+    keys := FocusScope {
+        capture-key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.closed();
+                return accept;
+            }
+            if (event.text == Key.Return) {
+                root.step(event.modifiers.shift);
+                return accept;
+            }
+            if (event.text == Key.F3) {
+                root.step(event.modifiers.shift);
+                return accept;
+            }
+            reject
+        }
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 6px;
+            spacing: 4px;
+            alignment: stretch;
+            champ := TextField {
+                y: (parent.height - self.height) / 2;
+                height: 30px;
+                horizontal-stretch: 1;
+                icon: Icons.search;
+                placeholder-text: "Find in the note";
+                text <=> root.query;
+                init => {
+                    self.focus();
+                    self.select-all();
+                }
+                edited(t) => { root.changed(t); }
+            }
+            Text {
+                y: (parent.height - self.height) / 2;
+                text: root.count;
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+                min-width: self.preferred-width;
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.chevron-up;
+                label: "Previous";
+                shortcut: "Shift+Enter";
+                enabled: root.count != "" && root.count != "No results";
+                clicked => { root.step(true); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.chevron-down;
+                label: "Next";
+                shortcut: "Enter";
+                enabled: root.count != "" && root.count != "No results";
+                clicked => { root.step(false); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.window-close;
+                label: "Close";
+                shortcut: "Esc";
+                clicked => { root.closed(); }
+            }
+        }
+    }
+}
+
 // --- The place ------------------------------------------------------------------------
 
 export component NotesView inherits Rectangle {
+    /// Ctrl+F's bar over the note.
+    in property <bool> find-open;
+    in-out property <string> find-query;
+    in property <string> find-count;
+    in property <int> find-serial;
+    callback find-changed(string);
+    callback find-step(bool);
+    callback find-closed();
     in property <[NoteSpaceData]> spaces;
     in property <int> space;
     in property <[NoteTreeRowData]> tree;
@@ -1956,7 +2060,7 @@ export component NotesView inherits Rectangle {
             Rectangle { height: 6px; }
             TextField {
                 height: 32px;
-                font-size: 13.5px;
+                font-size: 13px;
                 icon: Icons.search;
                 placeholder-text: "Filter";
                 text <=> root.filter;
@@ -2212,13 +2316,13 @@ export component NotesView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.notes;
                     label: "Notes";
-                    button-size: Layout.touch-input ? 44px : 30px;
-                    icon-size: Layout.touch-input ? 22px : 18px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.tree-open = true; }
                 }
                 Text {
                     text: root.path;
-                    font-size: 12.5px;
+                    font-size: 13px;
                     color: Tokens.text-muted;
                     vertical-alignment: center;
                     overflow: elide;
@@ -2234,8 +2338,8 @@ export component NotesView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.sparkle;
                     label: "Revise the flashcards";
-                    button-size: 30px;
-                    icon-size: 17px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.revise(); }
                 }
                 if root.open: IconButton {
@@ -2243,8 +2347,8 @@ export component NotesView inherits Rectangle {
                     icon: root.focus-mode ? Icons.collapse : Icons.expand;
                     label: root.focus-mode ? "Leave focus mode" : "Focus mode";
                     shortcut: "F11";
-                    button-size: 30px;
-                    icon-size: 17px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     active: root.focus-mode;
                     clicked => { root.focus-mode-toggled(); }
                 }
@@ -2252,8 +2356,8 @@ export component NotesView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.code;
                     label: root.source-mode ? "Back to the blocks" : "Edit as plain text";
-                    button-size: 30px;
-                    icon-size: 17px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     active: root.source-mode;
                     clicked => { root.source-toggled(); }
                 }
@@ -2262,8 +2366,8 @@ export component NotesView inherits Rectangle {
                     icon: Icons.eye;
                     label: root.reading ? "Edit" : "Read";
                     shortcut: "Ctrl+R";
-                    button-size: 30px;
-                    icon-size: 17px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     active: root.reading;
                     clicked => { root.reading-toggled(); }
                 }
@@ -2271,8 +2375,8 @@ export component NotesView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.sidebar;
                     label: "Outline and links";
-                    button-size: 30px;
-                    icon-size: 17px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     active: root.side;
                     clicked => { root.side-toggled(); }
                 }
@@ -2281,8 +2385,8 @@ export component NotesView inherits Rectangle {
                     icon: Icons.graph;
                     label: "Links between the notes";
                     shortcut: "Ctrl+G";
-                    button-size: 30px;
-                    icon-size: 17px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.graph(); }
                 }
                 IconButton {
@@ -2290,8 +2394,8 @@ export component NotesView inherits Rectangle {
                     icon: Icons.search;
                     label: "Open a note";
                     shortcut: "Ctrl+O";
-                    button-size: 30px;
-                    icon-size: 17px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.quick-open(); }
                 }
                 IconButton {
@@ -2299,8 +2403,8 @@ export component NotesView inherits Rectangle {
                     icon: Icons.plus;
                     label: "New note";
                     shortcut: "Ctrl+N";
-                    button-size: 30px;
-                    icon-size: 18px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     tint: Tokens.accent;
                     tinted: true;
                     clicked => { root.new-note(); }
@@ -2383,7 +2487,7 @@ export component NotesView inherits Rectangle {
                             spacing: 4px;
                             titre-onglet := Text {
                                 text: t.title;
-                                font-size: 12.5px;
+                                font-size: 13px;
                                 font-weight: i == root.tab-active ? 600 : 400;
                                 color: i == root.tab-active ? Tokens.text : Tokens.text-secondary;
                                 vertical-alignment: center;
@@ -2395,8 +2499,8 @@ export component NotesView inherits Rectangle {
                                 icon: Icons.window-close;
                                 label: "Close the tab";
                                 shortcut: "Ctrl+W";
-                                button-size: 20px;
-                                icon-size: 10px;
+                                button-size: Layout.inline-button;
+                                icon-size: Layout.inline-icon;
                                 clicked => { root.tab-closed(i); }
                             }
                         }
@@ -2407,8 +2511,8 @@ export component NotesView inherits Rectangle {
                         icon: Icons.plus;
                         label: "New tab";
                         shortcut: "Ctrl+T";
-                        button-size: 24px;
-                        icon-size: 13px;
+                        button-size: Layout.chrome-button;
+                        icon-size: Layout.chrome-icon;
                         clicked => { root.tab-new(); }
                     }
                 }
@@ -2431,8 +2535,12 @@ export component NotesView inherits Rectangle {
 
             if root.open: HorizontalLayout {
               vertical-stretch: 1;
+              // The note's page, and Ctrl+F's bar floating over its top right.
+              Rectangle {
+              horizontal-stretch: 1;
               page := ScrollView {
-                horizontal-stretch: 1;
+                width: 100%;
+                height: 100%;
                 mouse-drag-pan-enabled: false;
                 content-width: self.visible-width;
                 // Each tab keeps where its note was scrolled (Rust remembers it).
@@ -2778,7 +2886,7 @@ export component NotesView inherits Rectangle {
                                     width: max(20px, NoteSelect.edit-w - 12px);
                                     height: NoteSelect.edit-h;
                                     text: NoteSelect.edit-text;
-                                    font-size: 13.5px;
+                                    font-size: 13px;
                                     color: Tokens.text;
                                     vertical-alignment: center;
                                     single-line: true;
@@ -2819,7 +2927,7 @@ export component NotesView inherits Rectangle {
                         // blocks. (Rust empties the blocks while it shows.)
                         if root.source-mode: Text {
                             text: "Plain text — Escape returns to the note's blocks.";
-                            font-size: 11.5px;
+                            font-size: 12px;
                             color: Tokens.text-muted;
                         }
                         if root.source-mode: Rectangle {
@@ -2829,7 +2937,7 @@ export component NotesView inherits Rectangle {
                                 width: parent.width;
                                 text: root.source-text;
                                 font-family: Tokens.font-mono;
-                                font-size: 13.5px;
+                                font-size: 13px;
                                 color: Tokens.text;
                                 wrap: word-wrap;
                                 single-line: false;
@@ -2871,6 +2979,17 @@ export component NotesView inherits Rectangle {
                     Rectangle { horizontal-stretch: 1; }
                 }
               }
+              if root.find-open && !Layout.compact: NoteFindBar {
+                x: parent.width - self.width - 20px;
+                y: 10px;
+                query <=> root.find-query;
+                count: root.find-count;
+                serial: root.find-serial;
+                changed(q) => { root.find-changed(q); }
+                step(avant) => { root.find-step(avant); }
+                closed => { root.find-closed(); }
+              }
+              }
 
               // Another note beside, to read while writing: drawn, links followed.
               if root.beside.length > 0 && !Layout.compact: Rectangle {
@@ -2902,7 +3021,7 @@ export component NotesView inherits Rectangle {
                             icon: Icons.window-close;
                             label: "Close the note beside";
                             button-size: 26px;
-                            icon-size: 13px;
+                            icon-size: 14px;
                             clicked => { root.beside-closed(); }
                         }
                     }
@@ -2950,7 +3069,7 @@ export component NotesView inherits Rectangle {
                         spacing: 2px;
                         Text {
                             text: root.facts;
-                            font-size: 11.5px;
+                            font-size: 12px;
                             color: Tokens.text-muted;
                             wrap: word-wrap;
                         }
@@ -2968,7 +3087,7 @@ export component NotesView inherits Rectangle {
                                 x: 6px + (h.detail.to-float() - 1) * 12px;
                                 width: parent.width - self.x - 6px;
                                 text: h.title;
-                                font-size: 12.5px;
+                                font-size: 13px;
                                 font-weight: h.detail == "1" ? 600 : 400;
                                 color: Tokens.text;
                                 vertical-alignment: center;
@@ -2994,14 +3113,14 @@ export component NotesView inherits Rectangle {
                                 padding-left: 6px;
                                 Text {
                                     text: l.title;
-                                    font-size: 12.5px;
+                                    font-size: 13px;
                                     font-weight: 600;
                                     color: Tokens.accent;
                                     overflow: elide;
                                 }
                                 Text {
                                     text: l.detail;
-                                    font-size: 11.5px;
+                                    font-size: 12px;
                                     color: Tokens.text-muted;
                                     wrap: word-wrap;
                                 }
@@ -3034,11 +3153,14 @@ export component NotesView inherits Rectangle {
 
     // The completion list: it scrolls to the row the arrows reach; the `/` menu shows
     // an icon on each row and, beside it, a card of the block highlighted.
-    property <length> ligne-completion: root.completion.length > 0 && root.completion[0].detail != "" ? 40px : 30px;
+    // Emojis are one line each, the emoji and its name, as a chat's list is.
+    property <bool> completion-emojis: root.completion-pictures.length > 0;
+    property <length> ligne-completion: root.completion-emojis ? 28px
+        : root.completion.length > 0 && root.completion[0].detail != "" ? 40px : 30px;
     if root.completion.length > 0 && !Layout.compact: Rectangle {
-        x: min(root.popup-x - root.absolute-position.x, root.width - 300px);
+        x: min(root.popup-x - root.absolute-position.x, root.width - (root.completion-emojis ? 230px : 300px));
         y: min(root.popup-y - root.absolute-position.y, root.height - self.height - 8px);
-        width: 290px;
+        width: root.completion-emojis ? 220px : 290px;
         height: min(liste-completion.preferred-height, 312px);
         border-radius: Tokens.radius-medium;
         background: Tokens.surface;
@@ -3070,9 +3192,9 @@ export component NotesView inherits Rectangle {
                     border-radius: Tokens.radius-small;
                     background: i == root.completion-highlight ? Tokens.accent : choix-completion.has-hover ? Tokens.surface-hover : transparent;
                     HorizontalLayout {
-                        padding-left: 10px;
+                        padding-left: root.completion-emojis ? 8px : 10px;
                         padding-right: 10px;
-                        spacing: 10px;
+                        spacing: root.completion-emojis ? 8px : 10px;
                         if i < root.completion-pictures.length: Image {
                             y: (parent.height - self.height) / 2;
                             width: 18px;
@@ -3083,7 +3205,7 @@ export component NotesView inherits Rectangle {
                         if BlockPreview.icon(c.key) != "": Icon {
                             y: (parent.height - self.height) / 2;
                             data: BlockPreview.icon(c.key);
-                            size: 15px;
+                            size: 16px;
                             tint: i == root.completion-highlight ? Tokens.accent-text : Tokens.text-secondary;
                         }
                         VerticalLayout {
@@ -3094,7 +3216,7 @@ export component NotesView inherits Rectangle {
                                 color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text;
                                 overflow: elide;
                             }
-                            if c.detail != "": Text {
+                            if c.detail != "" && !root.completion-emojis: Text {
                                 text: c.detail;
                                 font-size: 11px;
                                 color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text-muted;
@@ -3240,7 +3362,7 @@ export component NotesView inherits Rectangle {
                 accessible-action-default => { root.format(f.k); }
                 lettre := Text {
                     text: f.t;
-                    font-size: 13.5px;
+                    font-size: 13px;
                     font-weight: f.k == "bold" ? 800 : 500;
                     font-italic: f.k == "italic";
                     color: f.k == "colour" ? Tokens.red : Tokens.text;
@@ -3303,7 +3425,7 @@ export component NotesView inherits Rectangle {
             spacing: 6px;
             if root.card-title != "": Text {
                 text: root.card-title;
-                font-size: 12.5px;
+                font-size: 13px;
                 font-weight: 600;
                 color: Tokens.text;
                 overflow: elide;
@@ -3350,7 +3472,7 @@ export component NotesView inherits Rectangle {
             }
             if root.card-text != "": Text {
                 text: root.card-text;
-                font-size: 12.5px;
+                font-size: 13px;
                 color: Tokens.text-secondary;
                 wrap: word-wrap;
             }
@@ -3397,7 +3519,7 @@ export component NotesView inherits Rectangle {
                 }
                 nom-porte := Text {
                     text: root.carried-name;
-                    font-size: 12.5px;
+                    font-size: 13px;
                     font-weight: 600;
                     color: Tokens.text;
                     vertical-alignment: center;
@@ -3406,7 +3528,7 @@ export component NotesView inherits Rectangle {
             ou-porte := Text {
                 visible: root.carry-target != "";
                 text: root.carry-target == "" ? "" : "Move into “" + root.carry-target + "”";
-                font-size: 11.5px;
+                font-size: 12px;
                 color: Tokens.text-muted;
             }
         }
@@ -4103,7 +4225,7 @@ export component NotesReviewPanel inherits Rectangle {
                             }
                             if !root.finished: Text {
                                 text: "Question";
-                                font-size: 12.5px;
+                                font-size: 13px;
                                 font-weight: 600;
                                 color: Tokens.text-muted;
                             }
@@ -4126,14 +4248,14 @@ export component NotesReviewPanel inherits Rectangle {
                             }
                             if !root.finished && root.revealed: Text {
                                 text: "Answer";
-                                font-size: 12.5px;
+                                font-size: 13px;
                                 font-weight: 600;
                                 color: Tokens.text-muted;
                             }
                             if !root.finished && root.revealed: Rectangle { height: 8px; }
                             if !root.finished && root.revealed: Text {
                                 text: root.answer;
-                                font-size: 17px;
+                                font-size: 18px;
                                 color: Tokens.text;
                                 wrap: word-wrap;
                             }
@@ -4228,7 +4350,7 @@ export component NotesReviewPanel inherits Rectangle {
                 }
                 if !root.finished: Text {
                     text: root.question;
-                    font-size: 19px;
+                    font-size: 18px;
                     font-weight: 600;
                     color: Tokens.text;
                     wrap: word-wrap;
@@ -4333,20 +4455,20 @@ export component NotesQuickOpen inherits Rectangle {
                     Icon {
                         y: (parent.height - self.height) / 2;
                         data: root.moving != "" ? Icons.folder : Icons.notes;
-                        size: 15px;
+                        size: 16px;
                         tint: i == root.highlighted ? Tokens.accent-text : Tokens.text-muted;
                     }
                     VerticalLayout {
                         alignment: center;
                         Text {
                             text: f.title;
-                            font-size: 13.5px;
+                            font-size: 13px;
                             color: i == root.highlighted ? Tokens.accent-text : Tokens.text;
                             overflow: elide;
                         }
                         if f.detail != "": Text {
                             text: f.detail;
-                            font-size: 11.5px;
+                            font-size: 12px;
                             color: i == root.highlighted ? Tokens.accent-text : Tokens.text-muted;
                             overflow: elide;
                         }
@@ -4359,7 +4481,7 @@ export component NotesQuickOpen inherits Rectangle {
             if root.results.length == 0 && root.query != "": Text {
                 text: root.moving != "" ? "No folder by that name."
                     : root.search ? "Nothing found." : "No note by that name. Enter makes it.";
-                font-size: 12.5px;
+                font-size: 13px;
                 color: Tokens.text-muted;
             }
             Rectangle {}
@@ -4397,7 +4519,7 @@ export component NotesHistoryPanel inherits Rectangle {
                     if root.versions.length == 0: Text {
                         text: "No earlier version yet: one is kept each time the note is edited again.";
                         wrap: word-wrap;
-                        font-size: 12.5px;
+                        font-size: 13px;
                         color: Tokens.text-muted;
                     }
                     for v[i] in root.versions: Rectangle {
@@ -4416,7 +4538,7 @@ export component NotesHistoryPanel inherits Rectangle {
                             }
                             Text {
                                 text: v.detail;
-                                font-size: 11.5px;
+                                font-size: 12px;
                                 color: Tokens.text-muted;
                             }
                         }
@@ -4443,7 +4565,7 @@ export component NotesHistoryPanel inherits Rectangle {
                             text: root.chosen < 0 ? "Pick a version on the left." : root.preview;
                             wrap: word-wrap;
                             font-family: Tokens.font-mono;
-                            font-size: 12.5px;
+                            font-size: 13px;
                             color: root.chosen < 0 ? Tokens.text-muted : Tokens.text-secondary;
                         }
                     }
@@ -4600,7 +4722,7 @@ export component NotesGraphPanel inherits Rectangle {
                         horizontal-stretch: 1;
                         Text {
                             text: root.nodes[root.touche].label;
-                            font-size: 15.5px;
+                            font-size: 15px;
                             font-weight: 600;
                             color: Tokens.text;
                             overflow: elide;
@@ -4666,7 +4788,7 @@ export component NotesGraphPanel inherits Rectangle {
                         y: parent.d + 2px;
                         width: parent.width;
                         text: n.label;
-                        font-size: 10.5px;
+                        font-size: 11px;
                         color: n.current || zone.has-hover ? Tokens.text : Tokens.text-muted;
                         horizontal-alignment: center;
                     }
@@ -4982,7 +5104,7 @@ export component NotesPhoneSheet inherits Rectangle {
                 Text {
                     text: "Open notes";
                     font-family: Tokens.font-display;
-                    font-size: 19px;
+                    font-size: 18px;
                     font-weight: 600;
                     color: Tokens.text;
                     vertical-alignment: center;
@@ -5029,7 +5151,7 @@ export component NotesPhoneSheet inherits Rectangle {
                                 horizontal-stretch: 1;
                                 Text {
                                     text: t.title;
-                                    font-size: 15.5px;
+                                    font-size: 15px;
                                     font-weight: i == root.tab-active ? 600 : 400;
                                     color: Tokens.text;
                                     overflow: elide;
@@ -5125,7 +5247,7 @@ export component NotesPhoneSheet inherits Rectangle {
                                 x: 14px + (h.detail.to-float() - 1) * 16px;
                                 width: parent.width - self.x - 14px;
                                 text: h.title;
-                                font-size: 15.5px;
+                                font-size: 15px;
                                 font-weight: h.detail == "1" ? 600 : 400;
                                 color: Tokens.text;
                                 vertical-alignment: center;
@@ -5160,7 +5282,7 @@ export component NotesPhoneSheet inherits Rectangle {
                                 alignment: center;
                                 Text {
                                     text: l.title;
-                                    font-size: 15.5px;
+                                    font-size: 15px;
                                     font-weight: 600;
                                     color: Tokens.accent;
                                     overflow: elide;

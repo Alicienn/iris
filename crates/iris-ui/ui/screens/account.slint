@@ -415,7 +415,7 @@ component FoundRow inherits Rectangle {
             spacing: 1px;
             Text {
                 text: root.label;
-                font-size: 15.5px;
+                font-size: 15px;
                 color: Tokens.text;
                 opacity: 0.4 + 0.6 * root.plein;
             }
@@ -539,14 +539,14 @@ export component AccountFoundPage inherits Rectangle {
             Text {
                 text: root.count == 0 ? (root.syncing ? "Waiting for the first messages" : "No message yet")
                     : root.count == 1 ? "1 message" : "\{root.count} messages";
-                font-size: 13.5px;
+                font-size: 13px;
                 color: Tokens.text-muted;
                 overflow: elide;
                 horizontal-stretch: 1;
             }
             Text {
                 text: root.elapsed;
-                font-size: 13.5px;
+                font-size: 13px;
                 color: Tokens.text-faint;
             }
         }

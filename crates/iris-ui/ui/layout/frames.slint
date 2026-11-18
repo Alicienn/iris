@@ -309,7 +309,7 @@ export component Modal inherits Rectangle {
                 Text {
                     text: root.title;
                     font-family: Tokens.font-display;
-                    font-size: root.sheet ? 19px : 16px;
+                    font-size: root.sheet ? 18px : 16px;
                     font-weight: root.sheet ? 600 : 700;
                     color: Tokens.text;
                     vertical-alignment: root.wrap-title ? top : center;
@@ -323,7 +323,7 @@ export component Modal inherits Rectangle {
                     label: root.close-label;
                     shortcut: "Esc";
                     button-size: 26px;
-                    icon-size: 13px;
+                    icon-size: 14px;
                     clicked => { root.dismissed(); }
                 }
             }

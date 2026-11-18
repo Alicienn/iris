@@ -359,8 +359,18 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
         });
     }
 
-    shell::wire_attachments(&fenetre, &services, Arc::clone(&selection));
-    shell::wire_attachment_open(&fenetre, &services, Arc::clone(&selection));
+    shell::wire_attachments(
+        &fenetre,
+        &services,
+        Arc::clone(&selection),
+        runtime.handle().clone(),
+    );
+    shell::wire_attachment_open(
+        &fenetre,
+        &services,
+        Arc::clone(&selection),
+        runtime.handle().clone(),
+    );
     shell::wire_invitations(&fenetre, &services, Arc::clone(&controller));
     shell::wire_source(&fenetre, &services, Arc::clone(&selection));
     shell::wire_account_setup(

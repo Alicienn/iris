@@ -230,7 +230,7 @@ impl Default for TypographyTokens {
             family: "Segoe UI Variable Text".into(),
             family_mono: "Cascadia Mono".into(),
             size_small: 12.0,
-            size_body: 13.5,
+            size_body: 13.0,
             size_title: 15.0,
             weight_body: 400,
             weight_bold: 600,

@@ -166,7 +166,7 @@ export component RowTile inherits Rectangle {
 
 /// A row's label, 15.5 pixels, cut short at the end.
 export component RowLabel inherits Text {
-    font-size: 15.5px;
+    font-size: 15px;
     color: Tokens.text;
     vertical-alignment: center;
     overflow: elide;
@@ -175,7 +175,7 @@ export component RowLabel inherits Text {
 
 /// A row's value at its end, lighter: "2 of 4 today", "21:30".
 export component RowValue inherits Text {
-    font-size: 14.5px;
+    font-size: 15px;
     color: Tokens.text-muted;
     vertical-alignment: center;
     horizontal-alignment: right;
@@ -255,7 +255,7 @@ export component Token inherits Rectangle {
         }
         Text {
             text: root.text;
-            font-size: 13.5px;
+            font-size: 13px;
             color: root.encre;
             vertical-alignment: center;
         }
@@ -300,7 +300,7 @@ export component SheetOption inherits Rectangle {
         }
         if root.value != "": Text {
             text: root.value;
-            font-size: 14.5px;
+            font-size: 15px;
             color: Tokens.text-muted;
             vertical-alignment: center;
         }
@@ -319,7 +319,7 @@ export component SheetTitle inherits HorizontalLayout {
     Text {
         text: root.text;
         font-family: Tokens.font-display;
-        font-size: 19px;
+        font-size: 18px;
         font-weight: 600;
         color: Tokens.text;
         vertical-alignment: center;

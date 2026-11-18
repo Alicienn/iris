@@ -101,7 +101,7 @@ component PlaceRow inherits Rectangle {
             border-color: Tokens.accent-text;
             Icon {
                 data: Icons.list;
-                size: 13px;
+                size: 14px;
                 tint: Tokens.accent-text;
             }
         }
@@ -215,7 +215,7 @@ component PlaceTile inherits Rectangle {
         if Layout.compact: Rectangle { vertical-stretch: 1; }
         Text {
             text: root.place.name;
-            font-size: Layout.compact ? 15px : 12.5px;
+            font-size: Layout.compact ? 15px : 13px;
             font-weight: 600;
             color: root.on ? Tokens.accent-text : Layout.compact ? Tokens.text-secondary : Tokens.text-muted;
             overflow: elide;
@@ -987,7 +987,7 @@ component TaskDetail inherits DetailPanel {
             label: "Close";
             shortcut: "Esc";
             button-size: 28px;
-            icon-size: 13px;
+            icon-size: 14px;
             clicked => { root.closed(); }
         }
     }
@@ -1023,7 +1023,7 @@ component TaskDetail inherits DetailPanel {
             spacing: 8px;
             Text {
                 text: "Moved " + root.detail.postponed + " times. Make it smaller, give it a slot, or let it go.";
-                font-size: 12.5px;
+                font-size: 13px;
                 color: Tokens.text-secondary;
                 wrap: word-wrap;
             }
@@ -1115,7 +1115,7 @@ component TaskDetail inherits DetailPanel {
 
                     mot := Text {
                         text: ["15 min", "30 min", "1 h", "2 h"][i];
-                        font-size: 12.5px;
+                        font-size: 13px;
                         font-weight: parent.on ? 600 : 400;
                         color: parent.on ? Tokens.text : Tokens.text-muted;
                     }
@@ -1130,7 +1130,7 @@ component TaskDetail inherits DetailPanel {
                     preferred-width: 84px;
                     horizontal-stretch: 1;
                     height: 26px;
-                    font-size: 12.5px;
+                    font-size: 13px;
                     accessible-label: "Other length";
                     placeholder-text: root.detail.estimate > 0
                         && root.detail.estimate != 15 && root.detail.estimate != 30
@@ -1755,7 +1755,7 @@ component TaskPage inherits Rectangle {
                         height: 32px;
                         text: root.more ? "Fewer options" : "More options";
                         label: root.more ? "Show fewer options" : "Show more options: reminder, repeat, list";
-                        font-size: 14.5px;
+                        font-size: 15px;
                         clicked => { root.more = !root.more; }
                     }
                 }
@@ -1841,7 +1841,7 @@ component TaskPage inherits Rectangle {
                                 }
                                 Text {
                                     text: root.detail.source;
-                                    font-size: 15.5px;
+                                    font-size: 15px;
                                     color: Tokens.text;
                                     overflow: elide;
                                 }
@@ -1891,7 +1891,7 @@ component TaskPage inherits Rectangle {
                                     width: parent.width;
                                     height: parent.height;
                                     text: step.title;
-                                    font-size: 15.5px;
+                                    font-size: 15px;
                                     color: step.done ? Tokens.text-muted : Tokens.text;
                                     vertical-alignment: center;
                                     overflow: elide;
@@ -1910,7 +1910,7 @@ component TaskPage inherits Rectangle {
                                 icon: Icons.window-close;
                                 label: "Remove subtask " + step.title;
                                 button-size: 30px;
-                                icon-size: 11px;
+                                icon-size: 12px;
                                 clicked => { root.step-removed(step.id); }
                             }
                         }
@@ -1929,7 +1929,7 @@ component TaskPage inherits Rectangle {
                                 y: (parent.height - self.height) / 2;
                                 height: 36px;
                                 bare: true;
-                                font-size: 15.5px;
+                                font-size: 15px;
                                 accessible-label: "Add a subtask";
                                 placeholder-text: "Add a subtask";
                                 text <=> root.new-step;
@@ -2148,12 +2148,12 @@ component EstimateBubble inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 width: 14px;
                 data: Icons.hourglass;
-                size: 13px;
+                size: 14px;
                 tint: Tokens.accent;
             }
             Text {
                 text: "How long will “" + root.task + "” take?";
-                font-size: 12.5px;
+                font-size: 13px;
                 font-weight: 600;
                 color: Tokens.text;
                 vertical-alignment: center;
@@ -2186,7 +2186,7 @@ component EstimateBubble inherits Rectangle {
         spacing: 8px;
         Text {
             text: "How long does “" + root.task + "” take?";
-            font-size: 13.5px;
+            font-size: 13px;
             color: Tokens.text-muted;
             overflow: elide;
         }
@@ -2632,7 +2632,7 @@ export component TasksView inherits Rectangle {
                 padding-left: 8px;
                 Text {
                     text: "No goal yet.";
-                    font-size: 12.5px;
+                    font-size: 13px;
                     color: Tokens.text-muted;
                     vertical-alignment: center;
                 }
@@ -2736,8 +2736,8 @@ export component TasksView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.list;
                     label: "Lists";
-                    button-size: Layout.touch-input ? 44px : 30px;
-                    icon-size: Layout.touch-input ? 22px : 18px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.column-open = true; }
                 }
                 Rectangle { horizontal-stretch: 1; }
@@ -2746,8 +2746,8 @@ export component TasksView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.archive;
                     label: "Archived tasks and goals";
-                    button-size: Layout.touch-input ? 44px : 30px;
-                    icon-size: Layout.touch-input ? 20px : 16px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     clicked => { root.archive-requested(root.page == 0 ? 0 : 1); }
                 }
                 IconButton {
@@ -2755,8 +2755,8 @@ export component TasksView inherits Rectangle {
                     icon: Icons.plus;
                     label: "New task";
                     shortcut: "N";
-                    button-size: 30px;
-                    icon-size: 18px;
+                    button-size: Layout.toolbar-button;
+                    icon-size: Layout.toolbar-icon;
                     tint: Tokens.accent;
                     tinted: true;
                     clicked => { ajout.focus-field(); }
@@ -2824,7 +2824,7 @@ export component TasksView inherits Rectangle {
                     if root.rows.length == 0: Text {
                         height: 44px;
                         text: "No open steps. Add one below.";
-                        font-size: 12.5px;
+                        font-size: 13px;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                     }
@@ -2934,7 +2934,7 @@ export component TasksView inherits Rectangle {
                     spacing: 10px;
                     Text {
                         text: root.overview.progress;
-                        font-size: 12.5px;
+                        font-size: 13px;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                     }
@@ -3631,7 +3631,7 @@ export component SlotPicker inherits Rectangle {
                 padding-right: 22px;
                 Text {
                     text: "Between your events and timed tasks";
-                    font-size: 13.5px;
+                    font-size: 13px;
                     color: Tokens.text-muted;
                 }
             }
@@ -3645,13 +3645,13 @@ export component SlotPicker inherits Rectangle {
                     Text {
                         width: 100px;
                         text: heure;
-                        font-size: 13.5px;
+                        font-size: 13px;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                     }
                     Text {
                         text: root.busy-titles.length > i ? root.busy-titles[i] : "";
-                        font-size: 13.5px;
+                        font-size: 13px;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                         overflow: elide;
@@ -3684,7 +3684,7 @@ export component SlotPicker inherits Rectangle {
                 }
                 if root.starts.length == 0: Text {
                     text: "No free stretch left that day.";
-                    font-size: 13.5px;
+                    font-size: 13px;
                     color: Tokens.text-muted;
                 }
             }
@@ -3742,7 +3742,7 @@ export component SlotPicker inherits Rectangle {
             }
             Text {
                 text: root.need;
-                font-size: 12.5px;
+                font-size: 13px;
                 color: Tokens.text-muted;
             }
             for b in root.busy: Text {
@@ -3774,7 +3774,7 @@ export component SlotPicker inherits Rectangle {
 
                         Text {
                             text: s;
-                            font-size: 12.5px;
+                            font-size: 13px;
                             color: Tokens.text;
                         }
                         creneau := TouchArea {
@@ -3786,13 +3786,13 @@ export component SlotPicker inherits Rectangle {
             }
             if root.slots.length == 0: Text {
                 text: "No free stretch left that day.";
-                font-size: 12.5px;
+                font-size: 13px;
                 color: Tokens.text-muted;
             }
             TextField {
                 accessible-label: "Other time";
                 placeholder-text: "Other time, e.g. 16:30";
-                font-size: 12.5px;
+                font-size: 13px;
                 text <=> root.autre;
                 accepted(t) => { root.typed(t); }
             }

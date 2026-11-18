@@ -5328,22 +5328,28 @@ pub fn wire_attachments(
     fenetre: &AppWindow,
     services: &Services,
     selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
+    runtime: tokio::runtime::Handle,
 ) {
     let services = services.clone();
     let faible = fenetre.as_weak();
 
     fenetre.on_save_attachment(move |rang| {
-        let Some(fenetre) = faible.upgrade() else {
-            return;
-        };
         let Some(thread) = *selection.lock().expect("sélection empoisonnée") else {
             return;
         };
-
-        match enregistrer_piece(&services, thread, rang as usize) {
-            Ok(chemin) => fenetre.set_status(format!("Saved to {}", chemin.display()).into()),
-            Err(e) => fenetre.set_status(format!("Could not save: {e}").into()),
-        }
+        let services = services.clone();
+        let faible = faible.clone();
+        runtime.spawn(async move {
+            let piece = piece_prete(&services, thread, rang as usize).await;
+            let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                match piece.and_then(|(nom, _, octets)| ecrire_piece(&nom, &octets)) {
+                    Ok(chemin) => {
+                        fenetre.set_status(format!("Saved to {}", chemin.display()).into())
+                    }
+                    Err(e) => fenetre.set_status(format!("Could not save: {e}").into()),
+                }
+            });
+        });
     });
 }
 
@@ -5635,69 +5641,92 @@ pub fn wire_attachment_open(
     fenetre: &AppWindow,
     services: &Services,
     selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
+    runtime: tokio::runtime::Handle,
 ) {
     let services = services.clone();
     let faible = fenetre.as_weak();
     fenetre.on_open_attachment(move |rang| {
-        let Some(fenetre) = faible.upgrade() else {
-            return;
-        };
         let Some(thread) = *selection.lock().expect("sélection empoisonnée") else {
             return;
         };
-
-        // Une invitation ou un fichier d'agenda s'ouvre dans l'agenda d'Iris, pas dans
-        // une autre application : c'est ici qu'est le calendrier, et l'ouvrir ailleurs
-        // ferait vivre le même rendez-vous à deux endroits.
-        if let Ok((nom, type_mime, octets)) = octets_de_piece(&services, thread, rang as usize) {
-            let calendrier = type_mime.eq_ignore_ascii_case("text/calendar")
-                || type_mime.eq_ignore_ascii_case("application/ics")
-                || nom.to_ascii_lowercase().ends_with(".ics");
-            if calendrier {
-                match crate::calendar::import_ics(&services, &String::from_utf8_lossy(&octets)) {
-                    Ok(bilan) => {
-                        fenetre.set_toast(bilan.message().into());
-                        if let Some(jour) = bilan.first_day {
-                            fenetre.invoke_calendar_day_chosen(jour.into());
-                        }
-                        fenetre.set_workspace(1);
-                        fenetre.invoke_workspace_changed(1);
-                    }
+        let services = services.clone();
+        let faible = faible.clone();
+        runtime.spawn(async move {
+            let piece = piece_prete(&services, thread, rang as usize).await;
+            let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                let (nom, type_mime, octets) = match piece {
+                    Ok(piece) => piece,
                     Err(e) => {
-                        fenetre.set_status(format!("Could not read the invitation: {e}").into())
+                        fenetre.set_status(format!("Could not open it: {e}").into());
+                        return;
                     }
+                };
+
+                // Une invitation ou un fichier d'agenda s'ouvre dans l'agenda d'Iris, pas
+                // dans une autre application : c'est ici qu'est le calendrier, et l'ouvrir
+                // ailleurs ferait vivre le même rendez-vous à deux endroits.
+                if est_une_invitation(&nom, &type_mime) {
+                    match crate::calendar::import_ics(&services, &String::from_utf8_lossy(&octets))
+                    {
+                        Ok(bilan) => {
+                            fenetre.set_toast(bilan.message().into());
+                            if let Some(jour) = bilan.first_day {
+                                fenetre.invoke_calendar_day_chosen(jour.into());
+                            }
+                            fenetre.set_workspace(1);
+                            fenetre.invoke_workspace_changed(1);
+                        }
+                        Err(e) => {
+                            fenetre.set_status(format!("Could not read the invitation: {e}").into())
+                        }
+                    }
+                    return;
                 }
-                return;
-            }
-        }
 
-        let resultat = enregistrer_piece(&services, thread, rang as usize)
-            .and_then(|chemin| crate::platform::open_path(&chemin).map(|()| chemin));
-
-        match resultat {
-            Ok(chemin) => fenetre.set_status(
-                format!(
-                    "Opened {}. The copy is in your downloads.",
-                    chemin
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default()
-                )
-                .into(),
-            ),
-            Err(e) => fenetre.set_status(format!("Could not open it: {e}").into()),
-        }
+                let resultat = ecrire_piece(&nom, &octets)
+                    .and_then(|chemin| crate::platform::open_path(&chemin).map(|()| chemin));
+                match resultat {
+                    Ok(chemin) => fenetre.set_status(
+                        format!(
+                            "Opened {}. The copy is in your downloads.",
+                            chemin
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default()
+                        )
+                        .into(),
+                    ),
+                    Err(e) => fenetre.set_status(format!("Could not open it: {e}").into()),
+                }
+            });
+        });
     });
 }
 
-/// Écrit une pièce jointe sur le disque et rend son chemin.
-fn enregistrer_piece(
+/// An attachment of the thread's last message, its body downloaded again first when
+/// the cache has let it go: the cache is bounded, and an attachment that was there
+/// yesterday must still open today.
+async fn piece_prete(
     services: &Services,
     thread: ThreadIdent,
     rang: usize,
-) -> iris_types::Result<std::path::PathBuf> {
-    let (nom, _, octets) = octets_de_piece(services, thread, rang)?;
-    let destination = chemin_libre(&dossier_telechargements(), &nom);
+) -> iris_types::Result<(String, String, Vec<u8>)> {
+    let messages = services.store.conversation(thread)?;
+    let message = messages
+        .last()
+        .ok_or_else(|| iris_types::Error::other("the conversation is empty"))?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(25),
+        services.engine.fetch_body(message.id),
+    )
+    .await
+    .map_err(|_| iris_types::Error::other("the mailbox did not send the message in time"))??;
+    octets_de_piece(services, thread, rang)
+}
+
+/// Écrit une pièce jointe dans les téléchargements et rend son chemin.
+fn ecrire_piece(nom: &str, octets: &[u8]) -> iris_types::Result<std::path::PathBuf> {
+    let destination = chemin_libre(&dossier_telechargements(), nom);
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -5789,7 +5818,7 @@ fn octets_du_message(
     let pieces = services.store.visible_attachments(message.id)?;
     let piece = pieces
         .get(rang)
-        .ok_or_else(|| iris_types::Error::other("pièce jointe introuvable"))?;
+        .ok_or_else(|| iris_types::Error::other("the attachment is no longer in the message"))?;
 
     // Les octets viennent du message brut, jamais d'une copie : c'est ce qui évite
     // de stocker deux fois toutes les pièces jointes de la boîte.
@@ -5797,15 +5826,15 @@ fn octets_du_message(
         .body_blob
         .as_deref()
         .and_then(iris_types::BlobId::from_hex)
-        .ok_or_else(|| iris_types::Error::other("le corps n'est pas encore téléchargé"))?;
+        .ok_or_else(|| iris_types::Error::other("the message is not downloaded yet"))?;
 
     let brut = services
         .blobs
         .get(blob)?
-        .ok_or_else(|| iris_types::Error::other("contenu absent du cache"))?;
+        .ok_or_else(|| iris_types::Error::other("the message is not downloaded yet"))?;
 
     let octets = iris_mime::attachment_bytes(&brut, piece.index)
-        .ok_or_else(|| iris_types::Error::other("pièce jointe absente du message"))?;
+        .ok_or_else(|| iris_types::Error::other("the attachment is no longer in the message"))?;
     Ok((
         piece.meta.filename.clone(),
         piece.meta.mime_type.clone(),

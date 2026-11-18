@@ -1753,7 +1753,7 @@ fn candidats(
             .collect(),
         Trigger::Command { query, .. } => c::command_candidates(query, 8),
         Trigger::Colour { query, .. } => c::colour_candidates(query),
-        Trigger::Emoji { query, .. } => c::emoji_candidates(query, 8),
+        Trigger::Emoji { query, .. } => c::emoji_candidates(query, 10),
         Trigger::Block { query, .. } => {
             let mut liste = c::block_candidates(query);
             // The space's templates, filled in for this note.
@@ -1828,7 +1828,8 @@ fn apres_curseur(f: &AppWindow, e: &mut Etat) {
         }
     };
     let selection = anchor != cursor;
-    f.set_note_bubble(selection);
+    // A place Ctrl+F selected is not words to format.
+    f.set_note_bubble(selection && !f.get_note_find_open());
 
     let declencheur = if selection {
         None
@@ -1886,12 +1887,19 @@ fn apres_curseur(f: &AppWindow, e: &mut Etat) {
                         Vec::new()
                     };
                 f.set_note_completion_pictures(ModelRc::new(VecModel::from(images)));
-                f.set_note_completion_highlight(0);
+                // The same list drawn again (an arrow moved in it): the row chosen
+                // stays. Back at the first, Up and Down could never leave it.
+                let garde = e
+                    .completion
+                    .as_ref()
+                    .filter(|c| c.block == block && c.trigger == t)
+                    .map_or(0, |c| c.highlight.min(liste.len() - 1));
+                f.set_note_completion_highlight(garde as i32);
                 e.completion = Some(Completion {
                     block,
                     trigger: t,
                     candidates: liste,
-                    highlight: 0,
+                    highlight: garde,
                 });
                 montrer_apercu(f, e);
             }

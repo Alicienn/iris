@@ -86,6 +86,31 @@ fn familles(nom: &str) -> parley::FontFamily<'_> {
     ]))
 }
 
+/// The colour emoji fonts, for what is written as an emoji.
+fn familles_emoji() -> parley::FontFamily<'static> {
+    parley::FontFamily::List(Cow::Owned(vec![
+        parley::FontFamilyName::named("Segoe UI Emoji"),
+        parley::FontFamilyName::named("Noto Color Emoji"),
+        parley::FontFamilyName::Generic(parley::GenericFamily::Emoji),
+    ]))
+}
+
+/// Where a text asks for an emoji's colours (a sign followed by U+FE0F, as ❤️). The
+/// text fonts also draw some of those signs, in one colour: the heart came out white.
+fn plages_emoji(texte: &str) -> Vec<std::ops::Range<usize>> {
+    let mut plages = Vec::new();
+    let mut avant: Option<usize> = None;
+    for (i, c) in texte.char_indices() {
+        if c == '\u{FE0F}' {
+            if let Some(d) = avant {
+                plages.push(d..i + c.len_utf8());
+            }
+        }
+        avant = Some(i);
+    }
+    plages
+}
+
 /// A font's natural line height over its size: (ascent + descent + leading) / size.
 fn rapport(nom: &str) -> f32 {
     if let Some(r) = RAPPORTS.with_borrow(|m| m.get(nom).copied()) {
@@ -220,6 +245,8 @@ pub struct Zone {
     /// them: for each line, how far it was moved.
     pub decalages: Vec<f32>,
     pub hauteur: f32,
+    /// The width it was laid out in: a table's cell is that wide.
+    pub largeur: f32,
     echelle: f32,
 }
 
@@ -364,6 +391,9 @@ pub fn poser(
                 if p.echelle != 0 {
                     b.push(StyleProperty::FontSize(p.taille(taille)), plage.clone());
                 }
+            }
+            for plage in plages_emoji(&riche.texte) {
+                b.push(familles_emoji(), plage);
             }
             for (k, f) in riche.formules.iter().enumerate() {
                 b.push_inline_box(InlineBox {
@@ -548,6 +578,7 @@ pub fn poser(
         riche,
         decalages,
         hauteur,
+        largeur,
         echelle: e,
     }
 }
@@ -607,6 +638,9 @@ pub fn image_emoji(texte: &str, taille: f32, echelle: f32, police: &str) -> Opti
             let mut b = lc.ranged_builder(fc, texte, echelle, false);
             b.push_default(familles(police));
             b.push_default(StyleProperty::FontSize(taille));
+            for plage in plages_emoji(texte) {
+                b.push(familles_emoji(), plage);
+            }
             let mut l = b.build(texte);
             l.break_all_lines(None);
             l
@@ -728,7 +762,16 @@ impl BlocVu {
                 } else {
                     0.0
                 };
-                let dx = if x < z.x { z.x - x } else { 0.0 };
+                // Side by side (a table's cells), the one the point is across from
+                // comes first: without its width, a row's first cell took every click
+                // and every arrow in that row.
+                let dx = if x < z.x {
+                    z.x - x
+                } else if x > z.x + z.largeur {
+                    (x - z.x - z.largeur) * 16.0
+                } else {
+                    0.0
+                };
                 dy * 4.0 + dx
             };
             d(a).partial_cmp(&d(b)).unwrap_or(std::cmp::Ordering::Equal)

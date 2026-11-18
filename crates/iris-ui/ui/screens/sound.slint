@@ -39,19 +39,22 @@ component SoundPad inherits Rectangle {
     property <float> glow: root.left > 0.001 && root.left <= 1 ? min(1, min((1 - root.left) * 7, root.left * 3.5)) : 0;
     property <angle> sweep: root.turn * 360deg + 20deg;
 
+    // The band: three pixels of it show round the pad, and a soft halo beyond.
     Rectangle {
         visible: root.glow > 0;
         opacity: root.glow;
         border-radius: 12px;
-        background: @linear-gradient(root.sweep, transparent 22%, root.hue-a 44%, root.hue-b 56%, transparent 78%);
+        background: @linear-gradient(root.sweep, transparent 18%, root.hue-a 42%, root.hue-b 58%, transparent 82%);
+        drop-shadow-blur: 10px;
+        drop-shadow-color: root.hue-a.transparentize(0.55);
     }
 
     Rectangle {
-        x: 1.5px;
-        y: 1.5px;
-        width: parent.width - 3px;
-        height: parent.height - 3px;
-        border-radius: 10.5px;
+        x: 3px;
+        y: 3px;
+        width: parent.width - 6px;
+        height: parent.height - 6px;
+        border-radius: 9px;
         background: Tokens.background;
         border-width: 1px;
         border-color: Tokens.border;
